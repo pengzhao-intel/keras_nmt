@@ -2,6 +2,7 @@
 import numpy
 import keras.backend as K
 import backend
+from tensorflow.contrib.layers.python.layers.regularizers import l1_regularizer
 
 K.dot = backend.dot
 K.shift_right = backend.shift_right
@@ -47,6 +48,9 @@ def lookup_table(table, indice, name=None):
     return output
 
 def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None):
+    assert K.ndim(targets) == 2    # time_steps * nb_samples
+    nb_samples = K.shape(targets)[1]
+
     targets_flat = K.flatten(targets)
     if K._BACKEND == 'tensorflow':
         ce = tf.nn.sparse_softmax_cross_entropy_with_logits(logits_flat, K.cast(targets_flat, 'int64'))
@@ -56,9 +60,8 @@ def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None)
     if mask is not None:
         mask_flat = K.flatten(mask)
         ce *= mask_flat
-        return K.sum(ce) / K.sum(mask_flat)
-    else:
-        return K.mean(ce)
+
+    return K.sum(ce) / nb_samples
 
 def get_probs_from_logits(logits):
     logits_shape = K.shape(logits)
@@ -168,7 +171,7 @@ class EncoderDecoder(object):
         for layer in self.layers:
             self.params.extend(layer.params)
 
-    def build_trainer_with_data_parallel(self, devices, src, src_mask, trg, trg_mask, ite):
+    def build_trainer_with_data_parallel(self, src, src_mask, trg, trg_mask, ite, devices, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
         assert K._BACKEND == 'tensorflow'
 
         src_mask_3d = K.expand_dims(src_mask)
@@ -189,7 +192,10 @@ class EncoderDecoder(object):
                 loss, fast_train_loss = self.calc_loss(splitted_data[0][i],
                                       splitted_data[1][i],
                                       splitted_data[2][i],
-                                      splitted_data[3][i])
+                                      splitted_data[3][i],
+                                      l1_reg_weight=l1_reg_weight,
+                                      l2_reg_weight=l2_reg_weight)
+
                 loss_list.append(loss)
                 fast_train_loss_list.append(fast_train_loss)
                 grads = K.gradients(loss, self.params)
@@ -235,7 +241,7 @@ class EncoderDecoder(object):
                                                 updates=fast_updates,
                                                 name='fast_train_function')
 
-    def calc_loss(self, src, src_mask_3d, trg, trg_mask_3d):
+    def calc_loss(self, src, src_mask_3d, trg, trg_mask_3d, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
 
         annotations = self.encoder.apply(src, src_mask_3d)
         # init_context = annotations[0, :, -self.n_hids_src:]
@@ -299,7 +305,7 @@ class EncoderDecoder(object):
         L1 = sum([K.sum(K.abs(param)) for param in self.params])
         L2 = sum([K.sum(K.square(param)) for param in self.params])
 
-        params_regular = L1 * 1e-6 + L2 * 1e-6
+        params_regular = L1 * l1_reg_weight + L2 * l2_reg_weight
 
         cost += params_regular
 
@@ -310,7 +316,7 @@ class EncoderDecoder(object):
                 new_L1 = sum([K.sum(K.abs(param)) for param in self.new_params])
                 new_L2 = sum([K.sum(K.square(param)) for param in self.new_params])
 
-                new_params_regular = new_L1 * 1e-6 + new_L2 * 1e-6
+                new_params_regular = new_L1 * l1_reg_weight + new_L2 * l2_reg_weight
 
                 fast_train_cost = reconstruction_cost * self.reconstruction_weight + new_params_regular
                 if self.with_attention_agreement:
@@ -318,7 +324,147 @@ class EncoderDecoder(object):
 
         return cost, fast_train_cost
 
-    def build_trainer(self, src, src_mask, trg, trg_mask, ite):
+
+    def build_trainer_with_model_parallel(self, src, src_mask, trg, trg_mask, ite, ps_device, devices, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
+        assert K._BACKEND == 'tensorflow'
+
+        src_mask_3d = K.expand_dims(src_mask)
+        trg_mask_3d = K.expand_dims(trg_mask)
+
+        # compute loss and grads
+        loss, fast_train_loss = self.calc_loss_with_model_parallel(src,
+                                                                   src_mask_3d,
+                                                                   trg,
+                                                                   trg_mask_3d,
+                                                                   ps_device=ps_device,
+                                                                   devices=devices,
+                                                                   l1_reg_weight=l1_reg_weight,
+                                                                   l2_reg_weight=l2_reg_weight)
+        grads = tf.gradients(loss, self.params, colocate_gradients_with_ops=True)
+        if self.with_reconstruction and self.with_fast_training:
+            if self.fix_base_parameters and not self.with_tied_weights:
+                fast_grads = tf.gradients(fast_train_loss, self.new_params, colocate_gradients_with_ops=True)
+
+        grads = grad_clip(grads, self.clip_c)
+        updates = adadelta(self.params, grads)
+        inps = [src, src_mask, trg, trg_mask]
+
+        self.train_fn = K.function(inps,
+                                   [loss],
+                                   updates=updates,
+                                   name='train_function')
+
+        if self.with_reconstruction and self.with_fast_training:
+            if self.fix_base_parameters and not self.with_tied_weights:
+                fast_grads = grad_clip(fast_grads, self.clip_c)
+                fast_updates = adadelta(self.new_params, fast_grads)
+                self.fast_train_fn = K.function(inps,
+                                                [fast_train_loss],
+                                                updates=fast_updates,
+                                                name='fast_train_function')
+            else:
+                base_training_ratio = K.minimum(ite / self.fast_training_iterations, numpy.float32(1.))
+                fast_updates = adadelta(self.params,
+                                        grads,
+                                        with_fast_training=self.with_fast_training,
+                                        fast_training_parameters=self.fast_training_parameters,
+                                        base_training_ratio=base_training_ratio)
+                fast_inps = inps + [ite]
+                self.fast_train_fn = K.function(fast_inps,
+                                                [loss],
+                                                updates=fast_updates,
+                                                name='fast_train_function')
+
+    def calc_loss_with_model_parallel(self, src, src_mask_3d, trg, trg_mask_3d, ps_device, devices, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
+        assert K._BACKEND == 'tensorflow'
+
+
+        with tf.device(devices[0]):
+
+            annotations = self.encoder.apply(src, src_mask_3d)
+
+            init_context = K.sum (annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+
+            trg_emb = self.table_trg.apply(trg)
+            # shift_right assumes a 3D tensor, and time steps is dimension one
+            trg_emb_shifted = K.permute_dimensions(K.shift_right(K.permute_dimensions(trg_emb, [1, 0, 2])),
+                                                   [1, 0, 2])
+            hiddens, readout, alignment = self.decoder.run_pipeline(
+                                                state_below=trg_emb_shifted,
+                                                mask_below=trg_mask_3d,
+                                                init_context=init_context,
+                                                c=annotations,
+                                                c_mask=src_mask_3d)
+
+            if self.dropout > 0.:
+                logger.info('Apply dropout with p = {}'.format(self.dropout))
+                readout = Dropout(readout, self.dropout)
+
+        logits = self.logistic_layer.get_logits_with_multiple_devices(readout, ps_device, devices)
+
+        with tf.device(devices[0]):
+            logits_flat = K.reshape(logits, shape=(-1, self.logistic_layer.n_out))
+            cost = get_category_cross_entropy_from_flat_logits(logits_flat, trg, trg_mask_3d)
+
+        if self.with_reconstruction:
+            with tf.device(devices[0]):
+                inverse_init_context = K.sum(hiddens * trg_mask_3d, axis=0) / K.sum(trg_mask_3d, axis=0)
+                src_emb = self.table_src.apply(src)
+                src_emb_shifted = K.permute_dimensions(K.shift_right(K.permute_dimensions(
+                                                    src_emb, [1, 0, 2])), [1, 0, 2])
+                inverse_hiddens, inverse_readout, inverse_alignment = self.inverse_decoder.run_pipeline(state_below=src_emb_shifted,
+                                                    mask_below=src_mask_3d,
+                                                    init_context=inverse_init_context,
+                                                    c=hiddens,
+                                                    c_mask=trg_mask_3d)
+            if self.with_reconstruction_error_on_states:
+                with tf.device(devices[0]):
+                    euclidean_distance = K.sum(K.square((inverse_hiddens - annotations) * src_mask_3d), axis=2)
+                    src_shape = K.shape(src)
+                    self.reconstruction_cost = K.sum(K.sqrt(euclidean_distance + 1e-6)) / K.cast(src_shape[1], K.dtype(euclidean_distance))
+            else:
+                with tf.device(devices[0]):
+                    if self.dropout > 0.:
+                        inverse_readout = Dropout(inverse_readout, self.dropout)
+
+                inverse_logits = self.inverse_logistic_layer.get_logits_with_multiple_devices(inverse_readout, ps_device, devices)
+                with tf.device(devices[0]):
+                    inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
+                    reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src, src_mask_3d)
+
+            with tf.device(devices[0]):
+                cost += reconstruction_cost * self.reconstruction_weight
+
+            if self.with_attention_agreement:
+                with tf.device(devices[0]):
+                    mul = -K.log(K.sum(alignment * K.permute_dimensions(inverse_alignment, (1, 0, 2)), axis=2) + 1e-6)
+                    attention_agreement_cost = K.sum(mul) / K.cast(K.shape(src)[1], dtype=K.dtype(mul))
+                    cost += attention_agreement_cost * self.attention_agreement_weight
+
+        L1 = sum([K.sum(K.abs(param)) for param in self.params])
+        L2 = sum([K.sum(K.square(param)) for param in self.params])
+
+        params_regular = L1 * l1_reg_weight + L2 * l2_reg_weight
+
+        cost += params_regular
+
+        fast_train_cost = None
+        if self.with_reconstruction and self.with_fast_training:
+            if self.fix_base_parameters and not self.with_tied_weights:
+                # for this specific case, we only need to tune re-constructor
+                new_L1 = sum([K.sum(K.abs(param)) for param in self.new_params])
+                new_L2 = sum([K.sum(K.square(param)) for param in self.new_params])
+
+                new_params_regular = new_L1 * l1_reg_weight + new_L2 * l2_reg_weight
+
+                fast_train_cost = reconstruction_cost * self.reconstruction_weight + new_params_regular
+                if self.with_attention_agreement:
+                    fast_train_cost += attention_agreement_cost * self.attention_agreement_weight
+
+        return cost, fast_train_cost
+
+
+    def build_trainer(self, src, src_mask, trg, trg_mask, ite, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
         src_mask_3d = K.expand_dims(src_mask)
         trg_mask_3d = K.expand_dims(trg_mask)
 
@@ -345,6 +491,7 @@ class EncoderDecoder(object):
 
         logits = self.logistic_layer.get_logits(readout)
         logits_flat = K.reshape(logits, shape=(-1, self.logistic_layer.n_out))
+
         self.cost = get_category_cross_entropy_from_flat_logits(logits_flat, trg, trg_mask_3d)
 
 
@@ -364,8 +511,6 @@ class EncoderDecoder(object):
                                                 c_mask=trg_mask_3d)
 
             if self.with_reconstruction_error_on_states:
-                # annotations = theano.printing.Print('encoder states:')(annotations)
-                # inverse_hiddens = theano.printing.Print('reconstructed encoder states:')(inverse_hiddens)
                 euclidean_distance = K.sum(K.square((inverse_hiddens - annotations) * src_mask_3d), axis=2)
                 # euclidean_distance = theano.printing.Print('euclidean distance:')(euclidean_distance)
                 # 1e-6 is eps to avoid NaN problem when using Euclidean distance
@@ -374,9 +519,7 @@ class EncoderDecoder(object):
                 src_shape = K.shape(src)
                 self.reconstruction_cost = K.sum(K.sqrt(euclidean_distance + 1e-6)) / K.cast(src_shape[1], K.dtype(euclidean_distance))
             else:
-                # apply dropout
                 if self.dropout > 0.:
-                    # logger.info('Apply dropout with p = {}'.format(self.dropout))
                     inverse_readout = Dropout(inverse_readout, self.dropout)
 
                 inverse_logits = self.inverse_logistic_layer.get_logits(inverse_readout)
@@ -391,16 +534,14 @@ class EncoderDecoder(object):
                 # Multiplication (MUL): the element-wise multiplication of corresponding matrix cells
                 mul = -K.log(K.sum(alignment * K.permute_dimensions(inverse_alignment, (1, 0, 2)), axis=2) + 1e-6)
                 self.attention_agreement_cost = K.sum(mul) / K.cast(K.shape(src)[1], dtype=K.dtype(mul))
-                # self.attention_agreement_cost = theano.printing.Print('alignment cost:')(self.attention_agreement_cost)
                 self.cost += self.attention_agreement_cost * self.attention_agreement_weight
-        ###################################
+
 
 
         self.L1 = sum([K.sum(K.abs(param)) for param in self.params])
         self.L2 = sum([K.sum(K.square(param)) for param in self.params])
 
-        params_regular = self.L1 * 1e-6 + self.L2 * 1e-6
-        # params_regular = theano.printing.Print('params_regular:')(params_regular)
+        params_regular = self.L1 * l1_reg_weight + self.L2 * l2_reg_weight
 
         # train cost
         train_cost = self.cost + params_regular
@@ -418,18 +559,17 @@ class EncoderDecoder(object):
         inps = [src, src_mask, trg, trg_mask]
 
         self.train_fn = K.function(inps, [train_cost], updates=updates, name='train_function')
-        # self.train_fn = theano.function(inps, [train_cost], updates=updates, name='train_function', mode=NanGuardMode(nan_is_error=True, inf_is_error=True, big_is_error=True))
 
 
         # for fast training
         if self.with_reconstruction and self.with_fast_training:
             if self.fix_base_parameters and not self.with_tied_weights:
-                # for this specific case, we only need to tune recontructor
+                # for this specific case, we only need to tune re constructor
 
                 self.new_L1 = sum([K.sum(K.abs(param)) for param in self.new_params])
                 self.new_L2 = sum([K.sum(K.square(param)) for param in self.new_params])
 
-                new_params_regular = self.new_L1 * 1e-6 + self.new_L2 * 1e-6
+                new_params_regular = self.new_L1 * l1_reg_weight + self.new_L2 * l2_reg_weight
 
                 # train cost
                 fast_train_cost = self.reconstruction_cost * self.reconstruction_weight + new_params_regular
@@ -488,7 +628,6 @@ class EncoderDecoder(object):
         cur_state = K.placeholder((None, None))
         # if it is the first word, emb should be all zero, and it is indicated by -1
         trg_emb = lookup_table(self.table_trg.W, y, name='trg_emb')
-
 
         # for with_attention=False
         if self.with_attention and self.with_coverage:

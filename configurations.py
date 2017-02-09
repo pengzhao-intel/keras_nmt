@@ -58,7 +58,7 @@ def get_config_search_coverage():
     config['saveto_best'] = './model_best.npz'
 
     # Dropout ratio, applied only after readout maxout
-    config['dropout'] = 0.5
+    config['dropout'] = 0.
 
     # Maxout, set maxout_part=1 to turn off
     config['maxout_part'] = 1
@@ -125,6 +125,15 @@ def get_config_search_coverage():
 
     # Gradient clipping
     config['clip_c'] = 1.
+
+    # Prefer to model parallel
+    config['prefer_to_model_parallel'] = False
+
+    # Weight of L1 regularization
+    config['l1_reg_weight'] = 1e-6
+
+    # Weight of L2 regularization
+    config['l2_reg_weight'] = 1e-6
 
     return config
 

@@ -2,7 +2,7 @@ import os
 import json
 from keras.backend import _backend
 # Devices, the first one is parameter server, separated by ','
-devices = os.getenv('DEVICES', '').split(',')
+devices = [device for device in os.getenv('DEVICES', '').split(',') if device]
 # Get keras backend
 def get_keras_backend():
     _keras_base_dir = os.path.expanduser('~')
@@ -86,7 +86,11 @@ def ensure_vocabularies(**kwargs):
                                             unk=unk,
                                             unk_id=unk_id,
                                             max_nb_of_vacabulary=trg_vocab_size)
-def main(configuration, devices=None):
+def main(configuration, ps_device=None, devices=None):
+
+    prefer_to_model_parallel = configuration['prefer_to_model_parallel']
+    l1_reg_weight = configuration['l1_reg_weight']
+    l2_reg_weight = configuration['l2_reg_weight']
     #  time_steps*nb_samples
     src = K.placeholder(shape=(None, None), dtype='int32')
     src_mask = K.placeholder(shape=(None, None))
@@ -99,9 +103,12 @@ def main(configuration, devices=None):
     enc_dec = EncoderDecoder(**configuration)
 
     if devices:
-        enc_dec.build_trainer_with_data_parallel(devices, src, src_mask, trg, trg_mask, ite)
+        if prefer_to_model_parallel:
+            enc_dec.build_trainer_with_model_parallel(src, src_mask, trg, trg_mask, ite, ps_device, devices, l1_reg_weight=l1_reg_weight, l2_reg_weight=l2_reg_weight)
+        else:
+            enc_dec.build_trainer_with_data_parallel(src, src_mask, trg, trg_mask, ite, devices, l1_reg_weight=l1_reg_weight, l2_reg_weight=l2_reg_weight)
     else:
-        enc_dec.build_trainer(src, src_mask, trg, trg_mask, ite)
+        enc_dec.build_trainer(src, src_mask, trg, trg_mask, ite, l1_reg_weight=l1_reg_weight, l2_reg_weight=l2_reg_weight)
 
     enc_dec.build_sampler()
 
@@ -153,10 +160,10 @@ def main(configuration, devices=None):
             logger.info('epoch %d \t updates %d train cost %.4f use time %.4f'
                         % (epoch, iters, tc[0], cur_time - last_time))
 
-            if devices:
+            if devices and not prefer_to_model_parallel:    # when do model parallel, only return the total cost
                 for i, device in enumerate(devices):
-                    logger.info('epoch %d \t updates %d device %s train cost %.4f use time %.4f'
-                        % (epoch, iters, device, tc[i + 1], cur_time - last_time))
+                    logger.info('epoch %d \t updates %d device %s train cost %.4f'
+                        % (epoch, iters, device, tc[i + 1]))
 
             if iters % configuration['save_freq'] == 0:
                 enc_dec.save()
@@ -201,15 +208,22 @@ if __name__ == '__main__':
         configuration.update(eval(open(args.state).read()))
     logger.info("\nModel options:\n{}".format(pprint.pformat(configuration)))
 
+    prefer_to_model_parallel = configuration['prefer_to_model_parallel']
+    logger.info("Prefer_to_model_parallel %s" % prefer_to_model_parallel)
+
     ensure_vocabularies(**configuration)
 
-    # update batch size accordingly if multiple devices are used, note that the first device is used as parameter server
+    # update batch size accordingly if data parallel training is used.
+    # Note that the first device is used as parameter server
     if devices:
-        configuration['batch_size'] = (len(devices) - 1) * configuration['batch_size']
-        logger.info("Batch size updated to %s" % configuration['batch_size'])
         assert K._BACKEND == 'tensorflow'
-        with tf.device(devices[0]):
-            main(configuration, devices[1:])
+        if not prefer_to_model_parallel:    # data parallel
+            configuration['batch_size'] = (len(devices) - 1) * configuration['batch_size']
+            logger.info("Batch size updated to %s" % configuration['batch_size'])
+        ps_device = devices[0]
+        wk_devices = devices[1:]
+        with tf.device(ps_device):
+            main(configuration, ps_device, wk_devices)
     else:
-        main(configuration, devices)
+        main(configuration)
 

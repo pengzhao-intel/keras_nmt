@@ -58,7 +58,6 @@ class BidirectionalEncoder(object):
 
         return annotaitons
 
-
 class Decoder(object):
 
     def __init__(self, n_in, n_hids, n_cdim, maxout_part=2,
@@ -495,8 +494,6 @@ class Decoder(object):
         return hiddens, readout * mask_below, probs
 
 
-
-
 # for reconstruction
 class InverseDecoder(Decoder):
     def __init__(self, n_in, n_hids, n_cdim, maxout_part=2,
@@ -705,8 +702,6 @@ class InverseDecoder(Decoder):
         return hiddens, readout * mask_below, probs
 
 
-
-
 class LookupTable(object):
 
     def __init__(self, vocab_size, embedding_size, name='embeddings'):
@@ -731,17 +726,31 @@ class LogisticRegression(object):
     """Multi-class Logistic Regression Class"""
 
     def __init__(self, n_in, n_out, name='LR'):
-        # initialize the weights W as a matrix of shape (n_in, n_out)
         self.W = norm_weight(shape=(n_in, n_out), name=_p(name, 'W'))
-		# initialize the baises b as a vector of n_out 0s
         self.b = constant_weight(shape=(n_out,), name=_p(name, 'b'))
-        # parameters of the model
         self.params = [self.W, self.b]
         self.n_out = n_out
 
     def get_logits(self, x):
         return  K.dot(x, self.W) + self.b
 
+    def get_logits_with_multiple_devices(self, x, ps_device, devices):
+        assert K._BACKEND == 'tensorflow'
+        import tensorflow as tf
+        num_devices = len(devices)
+        with tf.device(ps_device):
+            w_splits = tf.split(1, num_devices, self.W)
+        y_list = []
+        for w_split, device in zip(w_splits, devices):
+            with tf.device(device):
+                y = K.dot(x, w_split)
+                y_list.append(y)
+
+        # merge along the last dimension
+        with tf.device(devices[0]):
+            logits = K.concatenate(y_list)
+
+        return logits
 
 class GRU(object):
 
