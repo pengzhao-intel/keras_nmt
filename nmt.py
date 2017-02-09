@@ -49,7 +49,7 @@ def lookup_table(table, indice, name=None):
 
 def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None):
     assert K.ndim(targets) == 2    # time_steps * nb_samples
-    nb_samples = K.shape(targets)[1]
+    nb_samples = K.cast(K.shape(targets)[1], K.dtype(logits_flat))
 
     targets_flat = K.flatten(targets)
     if K._BACKEND == 'tensorflow':
