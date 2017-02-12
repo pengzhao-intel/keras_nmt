@@ -32,6 +32,77 @@ if K._BACKEND == 'tensorflow':
             grads[i] = tf.div(grads[i], num_grads)
         return grads
 
+    tf.set_random_seed(20080524)
+
+    def sampled_softmax_loss(weights,
+                             biases,
+                             num_sampled,
+                             num_classes,
+                             labels,
+                             inputs,
+                             mask=None,
+                             num_true=1,
+                             sampled_values=None,
+                             remove_accidental_hits=True):
+        """Computes and returns the sampled softmax training loss.
+        This is a faster way to train a softmax classifier over a huge number of
+        classes.
+        This operation is for training only.  It is generally an underestimate of
+        the full softmax loss.
+        At inference time, you can compute full softmax probabilities with the
+        expression `tf.nn.softmax(tf.matmul(inputs, tf.transpose(weights)) + biases)`.
+        See our [Candidate Sampling Algorithms Reference]
+        (../../extras/candidate_sampling.pdf)
+        Also see Section 3 of [Jean et al., 2014](http://arxiv.org/abs/1412.2007)
+        ([pdf](http://arxiv.org/pdf/1412.2007.pdf)) for the math.
+        Args:
+          weights: A `Tensor` of shape `[num_classes, dim]`, or a list of `Tensor`
+              objects whose concatenation along dimension 0 has shape
+              [num_classes, dim].  The (possibly-sharded) class embeddings.
+          biases: A `Tensor` of shape `[num_classes]`.  The class biases.
+          inputs: A `Tensor` of shape `[time steps, batch_size, dim]`.  The forward
+              activations of the input network.
+          mask: A tensor of shape [time_steps, batch_size,1].
+          labels: A `Tensor` of type `int64` and shape `[time_steps,batch_size,
+              num_true]`. The target classes.  Note that this format differs from
+              the `labels` argument of `nn.softmax_cross_entropy_with_logits`.
+          num_sampled: An `int`.  The number of classes to randomly sample per batch.
+          num_classes: An `int`. The number of possible classes.
+          num_true: An `int`.  The number of target classes per training example.
+          sampled_values: a tuple of (`sampled_candidates`, `true_expected_count`,
+              `sampled_expected_count`) returned by a `*_candidate_sampler` function.
+              (if None, we default to `log_uniform_candidate_sampler`)
+          remove_accidental_hits:  A `bool`.  whether to remove "accidental hits"
+              where a sampled class equals one of the target classes.  Default is
+              True.
+          partition_strategy: A string specifying the partitioning strategy, relevant
+              if `len(weights) > 1`. Currently `"div"` and `"mod"` are supported.
+              Default is `"mod"`. See `tf.nn.embedding_lookup` for more details.
+          name: A name for the operation (optional).
+        Returns:
+          A `batch_size` 1-D tensor of per-example sampled softmax losses.
+        """
+        assert K.ndim(inputs) == 3    # time_steps, number_samples, input_dim
+        nb_samples = K.cast(K.shape(inputs)[1], K.dtype(weights))
+
+        inputs = K.reshape(inputs, (-1, K.shape(inputs)[2]))
+        labels = K.reshape(labels, (-1, 1))
+        labels = K.cast(labels, 'int64')
+
+        ce = tf.nn.sampled_softmax_loss(weights=weights,
+                                          biases=biases,
+                                          inputs=inputs,
+                                          labels=labels,
+                                          num_sampled=num_sampled,
+                                          num_classes=num_classes,
+                                          num_true=num_true,
+                                          sampled_values=sampled_values,
+                                          remove_accidental_hits=remove_accidental_hits)
+        if mask is not None:
+            mask_flat = K.flatten(mask)    # time_steps*nb_samples
+            ce *= mask_flat
+
+        return K.sum(ce) / nb_samples
 
 
 def lookup_table(table, indice, name=None):
@@ -68,6 +139,25 @@ def get_probs_from_logits(logits):
     logits_flat = K.reshape(logits, shape=(-1, logits_shape[K.ndim(logits) - 1]))
     probs_flat = K.softmax(logits_flat)
     return K.reshape(probs_flat, shape=logits_shape)
+
+# TODO: apply sampled_softmax to re-construction loss
+
+def calc_loss_from_readout(readout, targets, targets_mask, logisticRegressionLayer, softmax_output_num_sampled=100000):
+    n_out = logisticRegressionLayer.n_out
+    if n_out >= softmax_output_num_sampled and K._BACKEND == 'tensorflow':
+        logger.info('Used sampled_softmax with number of class samples = {}'.format(softmax_output_num_sampled))
+        cost = sampled_softmax_loss(weights=K.transpose(logisticRegressionLayer.W),
+                             biases=logisticRegressionLayer.b,
+                             num_sampled=softmax_output_num_sampled,
+                             num_classes=n_out,
+                             labels=targets,
+                             inputs=readout,
+                             mask=targets_mask)
+    else:
+        logits = logisticRegressionLayer.get_logits(readout)
+        logits_flat = K.reshape(logits, shape=(-1, n_out))
+        cost = get_category_cross_entropy_from_flat_logits(logits_flat, targets, targets_mask)
+    return cost
 
 class EncoderDecoder(object):
 
@@ -171,7 +261,11 @@ class EncoderDecoder(object):
         for layer in self.layers:
             self.params.extend(layer.params)
 
-    def build_trainer_with_data_parallel(self, src, src_mask, trg, trg_mask, ite, devices, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
+    def build_trainer_with_data_parallel(self, src, src_mask, trg, trg_mask, ite, devices,
+                                         l1_reg_weight=1e-6,
+                                         l2_reg_weight=1e-6,
+                                         softmax_output_num_sampled=100000):
+
         assert K._BACKEND == 'tensorflow'
 
         src_mask_3d = K.expand_dims(src_mask)
@@ -194,7 +288,8 @@ class EncoderDecoder(object):
                                       splitted_data[2][i],
                                       splitted_data[3][i],
                                       l1_reg_weight=l1_reg_weight,
-                                      l2_reg_weight=l2_reg_weight)
+                                      l2_reg_weight=l2_reg_weight,
+                                      softmax_output_num_sampled=softmax_output_num_sampled)
 
                 loss_list.append(loss)
                 fast_train_loss_list.append(fast_train_loss)
@@ -241,7 +336,10 @@ class EncoderDecoder(object):
                                                 updates=fast_updates,
                                                 name='fast_train_function')
 
-    def calc_loss(self, src, src_mask_3d, trg, trg_mask_3d, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
+    def calc_loss(self, src, src_mask_3d, trg, trg_mask_3d,
+                  l1_reg_weight=1e-6,
+                  l2_reg_weight=1e-6,
+                  softmax_output_num_sampled=100000):
 
         annotations = self.encoder.apply(src, src_mask_3d)
         # init_context = annotations[0, :, -self.n_hids_src:]
@@ -265,9 +363,11 @@ class EncoderDecoder(object):
             logger.info('Apply dropout with p = {}'.format(self.dropout))
             readout = Dropout(readout, self.dropout)
 
-        logits = self.logistic_layer.get_logits(readout)
-        logits_flat = K.reshape(logits, shape=(-1, self.logistic_layer.n_out))
-        cost = get_category_cross_entropy_from_flat_logits(logits_flat, trg, trg_mask_3d)
+        cost = calc_loss_from_readout(readout=readout,
+                               targets=trg,
+                               targets_mask=trg_mask_3d,
+                               logisticRegressionLayer=self.logistic_layer,
+                               softmax_output_num_sampled=softmax_output_num_sampled)
 
         if self.with_reconstruction:
             inverse_init_context = K.sum(hiddens * trg_mask_3d, axis=0) / K.sum(trg_mask_3d, axis=0)
@@ -464,7 +564,11 @@ class EncoderDecoder(object):
         return cost, fast_train_cost
 
 
-    def build_trainer(self, src, src_mask, trg, trg_mask, ite, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
+    def build_trainer(self, src, src_mask, trg, trg_mask, ite,
+                      l1_reg_weight=1e-6,
+                      l2_reg_weight=1e-6,
+                      softmax_output_num_sampled=100000):
+
         src_mask_3d = K.expand_dims(src_mask)
         trg_mask_3d = K.expand_dims(trg_mask)
 
@@ -489,12 +593,11 @@ class EncoderDecoder(object):
             logger.info('Apply dropout with p = {}'.format(self.dropout))
             readout = Dropout(readout, self.dropout)
 
-        logits = self.logistic_layer.get_logits(readout)
-        logits_flat = K.reshape(logits, shape=(-1, self.logistic_layer.n_out))
-
-        self.cost = get_category_cross_entropy_from_flat_logits(logits_flat, trg, trg_mask_3d)
-
-
+        self.cost = calc_loss_from_readout(readout=readout,
+                               targets=trg,
+                               targets_mask=trg_mask_3d,
+                               logisticRegressionLayer=self.logistic_layer,
+                               softmax_output_num_sampled=softmax_output_num_sampled)
         # for reconstruction
         if self.with_reconstruction:
             # now hiddens is the annotations

@@ -102,13 +102,29 @@ def main(configuration, ps_device=None, devices=None):
 
     enc_dec = EncoderDecoder(**configuration)
 
+    softmax_output_num_sampled = configuration['softmax_output_num_sampled']
     if devices:
         if prefer_to_model_parallel:
             enc_dec.build_trainer_with_model_parallel(src, src_mask, trg, trg_mask, ite, ps_device, devices, l1_reg_weight=l1_reg_weight, l2_reg_weight=l2_reg_weight)
         else:
-            enc_dec.build_trainer_with_data_parallel(src, src_mask, trg, trg_mask, ite, devices, l1_reg_weight=l1_reg_weight, l2_reg_weight=l2_reg_weight)
+            enc_dec.build_trainer_with_data_parallel(src,
+                                                     src_mask,
+                                                     trg,
+                                                     trg_mask,
+                                                     ite,
+                                                     devices,
+                                                     l1_reg_weight=l1_reg_weight,
+                                                     l2_reg_weight=l2_reg_weight,
+                                                     softmax_output_num_sampled=softmax_output_num_sampled)
     else:
-        enc_dec.build_trainer(src, src_mask, trg, trg_mask, ite, l1_reg_weight=l1_reg_weight, l2_reg_weight=l2_reg_weight)
+        enc_dec.build_trainer(src,
+                              src_mask,
+                              trg,
+                              trg_mask,
+                              ite,
+                              l1_reg_weight=l1_reg_weight,
+                              l2_reg_weight=l2_reg_weight,
+                              softmax_output_num_sampled=softmax_output_num_sampled)
 
     enc_dec.build_sampler()
 

@@ -58,7 +58,7 @@ def get_config_search_coverage():
     config['saveto_best'] = './model_best.npz'
 
     # Dropout ratio, applied only after readout maxout
-    config['dropout'] = 0.
+    config['dropout'] = 0.5
 
     # Maxout, set maxout_part=1 to turn off
     config['maxout_part'] = 1
@@ -134,6 +134,9 @@ def get_config_search_coverage():
 
     # Weight of L2 regularization
     config['l2_reg_weight'] = 1e-6
+
+    # When the size of the target vocabulary is greater than this number, will use sampled_softmax to speed up
+    config['softmax_output_num_sampled'] = 512
 
     return config
 
