@@ -938,5 +938,4 @@ class EncoderDecoder(object):
                 else:
                     K.set_value(param, val[param_name])
         else:
-            logger.error("file {} does not exist".format(path))
-            self.save()
+            logger.warn("file {} does not exist, ignoring load".format(path))
