@@ -8,7 +8,7 @@ def get_config_search_coverage():
     config['output_kbest'] = False
 
     # configurations for coverage model
-    config['with_coverage'] = False
+    config['with_coverage'] = True
     # the coverage_dim for linguistic coverage is always 1
     config['coverage_dim'] = 100
     # coverage type: 'linguistic' or 'neural'
@@ -20,21 +20,10 @@ def get_config_search_coverage():
     # the reconstruction work
     config['with_reconstruction'] = False
     config['reconstruction_weight'] = 1.
-    config['with_reconstruction_coverage'] = False
-    config['with_reconstruction_context_gate'] = False
-    config['with_tied_weights'] = False
-    # we encourage the agreement for bidirectional attention, inspired by Cheng et al., (2016)
-    config['with_attention_agreement'] = False
-    config['attention_agreement_weight'] = 1.
-    config['with_reconstruction_error_on_states'] = False
-    # for fast training for new parameters, if the training starts from a well-trained baseline model
-    config['with_fast_training'] = False
 
-    config['fix_base_parameters'] = False
-    config['fast_training_iterations'] = 50000
     # Sequences longer than this will be deleted
-    config['seq_len_src'] = 80
-    config['seq_len_trg'] = 80
+    config['seq_len_src'] = 10
+    config['seq_len_trg'] = 10
 
     # Number of hidden units in GRU/LSTM
     config['nhids_src'] = 1000

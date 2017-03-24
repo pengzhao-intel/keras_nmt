@@ -79,16 +79,11 @@ class Aligner(object):
             if self.with_reconstruction:
                 inverse_alignment = numpy.array(results[idx])
                 idx += 1
-                if self.with_coverage:
-                    inverse_coverage = results[idx]
-                    idx += 1
-                    if self.coverage_type is 'linguistic':
-                        inverse_fertility = results[idx]
-                        idx += 1
 
                 print >> fout_inverse, inverse_alignment.tolist()
 
                 forward, backward, intersection, union, grow_align, diag_align, gd_align, gdf_align, gdfa_align = self.grow_diag_final_and(alignment, inverse_alignment)
+
                 print >> fout_forward, numpy.array(forward).tolist()
                 print >> fout_backward, numpy.array(backward).tolist()
                 print >> fout_intersection, numpy.array(intersection).tolist()
@@ -116,11 +111,6 @@ class Aligner(object):
 
                 if self.with_reconstruction:
                     logger.info("Inverse Alignment: {}".format(alignment.tolist()))
-                    if self.with_coverage:
-                        logger.info("Inverse Coverage: {}".format(self._idx_to_word(target, self.idict_trg, inverse_coverage)))
-                        if self.coverage_type is 'linguistic':
-                            logger.info("Inverse Fertility: {}".format(self._idx_to_word(target, self.idict_trg, inverse_fertility)))
-
 
     def grow_diag_final_and(self, alignment, inverse_alignment):
         # get hard align
@@ -278,9 +268,8 @@ if __name__ == '__main__':
                         coverage_dim=configuration['coverage_dim'],
                         coverage_type=configuration['coverage_type'],
                         max_fertility=configuration['max_fertility'],
-                        with_reconstruction=configuration['with_reconstruction'],
-                        with_reconstruction_coverage=configuration['with_reconstruction_coverage']
-                        )
+                        with_reconstruction=configuration['with_reconstruction'])
+
     test_src = get_stream(args.source, configuration['vocab_src'], **configuration)
     test_trg = get_stream(args.target, configuration['vocab_trg'], **configuration)
     aligner = Aligner(align_model=test_align, test_src=test_src, test_trg=test_trg, **configuration)

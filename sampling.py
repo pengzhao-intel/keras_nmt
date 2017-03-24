@@ -124,7 +124,6 @@ class BleuValidator(object):
         self.coverage_type = kwards.pop('coverage_type')
 
         self.with_reconstruction = kwards.pop('with_reconstruction')
-        self.with_attention_agreement = kwards.pop('with_attention_agreement')
 
         # replace unk
         self.replace_unk = kwards.pop('replace_unk')
@@ -197,8 +196,6 @@ class BleuValidator(object):
                     reconstruction_scores = results[index]
                     inverse_alignments = results[index + 1]
                     index += 2
-                    if self.with_attention_agreement:
-                        attention_agreement_scores = results[index]
 
             if self.normalize:
                 lengths = numpy.array([len(s) for s in outputs])
@@ -223,9 +220,6 @@ class BleuValidator(object):
                 if self.with_reconstruction:
                     kbest_score.extend([str(scores[idx] - reconstruction_scores[idx]), str(reconstruction_scores[idx])])
                     aligns.append(str(numpy.array(inverse_alignments[idx]).tolist()))
-
-                    if self.with_attention_agreement:
-                        kbest_score.append(str(attention_agreement_scores[idx]))
 
                 if self.output_kbest:
                     print >> fout_kbest, '%d ||| %s ||| %s ||| %s' % (i, ' ||| '.join(kbest_score), self._idx_to_word(outputs[idx][:-1], self.idict_trg), ' ||| '.join(aligns))
@@ -261,8 +255,6 @@ class BleuValidator(object):
                     print 'Reconstruction Score:', reconstruction_scores[sidx]
                     print 'Inverse Aligns:'
                     print numpy.array(inverse_alignments[sidx]).tolist()
-                    if self.with_attention_agreement:
-                        print 'Attention Agreement Score:', attention_agreement_scores[sidx]
 
             if i % 100 == 0:
                 logger.info("Translated {} lines of valid/test set ...".format(i))

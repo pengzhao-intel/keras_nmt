@@ -104,7 +104,6 @@ if K._BACKEND == 'tensorflow':
 
         return K.sum(ce) / nb_samples
 
-
 def lookup_table(table, indice, name=None):
     zero_mask = K.zeros_like(indice)
     one_mask = K.ones_like(indice)
@@ -216,47 +215,19 @@ class EncoderDecoder(object):
 
         # for reconstruction
         self.with_reconstruction = kwargs.pop('with_reconstruction')
-        self.with_tied_weights = kwargs.pop('with_tied_weights')
 
         self.reconstruction_weight = kwargs.pop('reconstruction_weight')
 
-        # we encourage the agreement for bidirectional attention, inspired by Cheng et al., (2016)
-        self.with_attention_agreement = kwargs.pop('with_attention_agreement')
-        self.attention_agreement_weight = kwargs.pop('attention_agreement_weight')
-
-        self.with_reconstruction_error_on_states = kwargs.pop('with_reconstruction_error_on_states')
         if self.with_reconstruction:
-            self.with_reconstruction_coverage = kwargs.pop('with_reconstruction_coverage')
-            self.with_reconstruction_context_gate = kwargs.pop('with_reconstruction_context_gate')
             # note the source and target sides are reversed
             self.inverse_decoder = InverseDecoder(self.n_in_src, 2 * self.n_hids_src, self.n_hids_trg,
                                    with_attention=self.with_attention,
-                                   with_coverage=self.with_reconstruction_coverage,
-                                   coverage_dim=self.coverage_dim,
-                                   coverage_type=self.coverage_type,
-                                   max_fertility=self.max_fertility,
-                                   with_context_gate=self.with_reconstruction_context_gate,
-                                   maxout_part=self.maxout_part, name='rnn_inverse_decoder',
-                                   with_tied_weights=self.with_tied_weights,
-                                   with_reconstruction_error_on_states=self.with_reconstruction_error_on_states,
-                                   decoder=self.decoder)
+                                   maxout_part=self.maxout_part, name='rnn_inverse_decoder')
+
             self.layers.append(self.inverse_decoder)
-            if not self.with_reconstruction_error_on_states:
-                self.inverse_logistic_layer = LogisticRegression(self.n_in_src, self.src_vocab_size, name='inverse_LR')
-                self.layers.append(self.inverse_logistic_layer)
 
-            # fast training for the new parameters introduced by reconstruction
-            self.with_fast_training = kwargs.pop('with_fast_training')
-            if self.with_fast_training:
-                self.fix_base_parameters = kwargs.pop('fix_base_parameters')
-                self.fast_training_iterations = numpy.float32(kwargs.pop('fast_training_iterations'))
-
-                self.new_params = []
-                self.new_params.extend(self.inverse_decoder.params)
-                if not self.with_reconstruction_error_on_states:
-                    self.new_params.extend(self.inverse_logistic_layer.params)
-                self.fast_training_parameters = [p.name for p in self.new_params]
-
+            self.inverse_logistic_layer = LogisticRegression(self.n_in_src, self.src_vocab_size, name='inverse_LR')
+            self.layers.append(self.inverse_logistic_layer)
 
         for layer in self.layers:
             self.params.extend(layer.params)
@@ -268,37 +239,27 @@ class EncoderDecoder(object):
 
         assert K._BACKEND == 'tensorflow'
 
-        src_mask_3d = K.expand_dims(src_mask)
-        trg_mask_3d = K.expand_dims(trg_mask)
+        src_mask_3d = [K.expand_dims(mask) for mask in src_mask]
+        trg_mask_3d = [K.expand_dims(mask) for mask in trg_mask]
 
         num_devices = len(devices)
 
-        data = [src, src_mask_3d, trg, trg_mask_3d]
-        # split along nb_samples dimension
-        splitted_data = [tf.split(1, num_devices, item) for item in data ]
         loss_list = []
-        fast_train_loss_list = []
         grads_list = []
-        fast_grads_list = []
 
         for i, device in enumerate(devices):
             with tf.device(device):
-                loss, fast_train_loss = self.calc_loss(splitted_data[0][i],
-                                      splitted_data[1][i],
-                                      splitted_data[2][i],
-                                      splitted_data[3][i],
+                loss = self.calc_loss(src[i],
+                                      src_mask_3d[i],
+                                      trg[i],
+                                      trg_mask_3d[i],
                                       l1_reg_weight=l1_reg_weight,
                                       l2_reg_weight=l2_reg_weight,
                                       softmax_output_num_sampled=softmax_output_num_sampled)
 
                 loss_list.append(loss)
-                fast_train_loss_list.append(fast_train_loss)
                 grads = K.gradients(loss, self.params)
                 grads_list.append(grads)
-                if self.with_reconstruction and self.with_fast_training:
-                    if self.fix_base_parameters and not self.with_tied_weights:
-                        fast_grads = K.gradients(fast_train_loss, self.new_params)
-                        fast_grads_list.append(fast_grads)
 
         avg_loss = sum(loss_list) / num_devices
         # use customized version of gradient to enable colocate_gradients with_ops
@@ -306,35 +267,13 @@ class EncoderDecoder(object):
         grads = avg_grads(grads_list)
         grads = grad_clip(grads, self.clip_c)
         updates = adadelta(self.params, grads)
-        inps = [src, src_mask, trg, trg_mask]
+
+        inps = src + src_mask + trg + trg_mask
 
         self.train_fn = K.function(inps,
                                    [avg_loss] + loss_list,
-                                   updates=updates,
-                                   name='train_function')
+                                   updates=updates)
 
-        if self.with_reconstruction and self.with_fast_training:
-            if self.fix_base_parameters and not self.with_tied_weights:
-                avg_fast_train_loss = sum(fast_train_loss_list) / num_devices
-                fast_grads = avg_grads(fast_grads_list)
-                fast_grads = grad_clip(fast_grads, self.clip_c)
-                fast_updates = adadelta(self.new_params, fast_grads)
-                self.fast_train_fn = K.function(inps,
-                                                [avg_fast_train_loss] + fast_train_loss_list,
-                                                updates=fast_updates,
-                                                name='fast_train_function')
-            else:
-                base_training_ratio = K.minimum(ite / self.fast_training_iterations, numpy.float32(1.))
-                fast_updates = adadelta(self.params,
-                                        grads,
-                                        with_fast_training=self.with_fast_training,
-                                        fast_training_parameters=self.fast_training_parameters,
-                                        base_training_ratio=base_training_ratio)
-                fast_inps = inps + [ite]
-                self.fast_train_fn = K.function(fast_inps,
-                                                [avg_loss] + loss_list,
-                                                updates=fast_updates,
-                                                name='fast_train_function')
 
     def calc_loss(self, src, src_mask_3d, trg, trg_mask_3d,
                   l1_reg_weight=1e-6,
@@ -381,26 +320,15 @@ class EncoderDecoder(object):
                                                 c=hiddens,
                                                 c_mask=trg_mask_3d)
 
-            if self.with_reconstruction_error_on_states:
-                euclidean_distance = K.sum(K.square((inverse_hiddens - annotations) * src_mask_3d), axis=2)
-                src_shape = K.shape(src)
-                self.reconstruction_cost = K.sum(K.sqrt(euclidean_distance + 1e-6)) / K.cast(src_shape[1], K.dtype(euclidean_distance))
-            else:
-                if self.dropout > 0.:
-                    inverse_readout = Dropout(inverse_readout, self.dropout)
+            if self.dropout > 0.:
+                inverse_readout = Dropout(inverse_readout, self.dropout)
 
-                inverse_logits = self.inverse_logistic_layer.get_logits(inverse_readout)
-                inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
-                reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src, src_mask_3d)
+            inverse_logits = self.inverse_logistic_layer.get_logits(inverse_readout)
+            inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
+            reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src, src_mask_3d)
 
             cost += reconstruction_cost * self.reconstruction_weight
 
-            if self.with_attention_agreement:
-                # Multiplication (MUL): the element-wise multiplication of corresponding matrix cells
-                mul = -K.log(K.sum(alignment * K.permute_dimensions(inverse_alignment, (1, 0, 2)), axis=2) + 1e-6)
-                attention_agreement_cost = K.sum(mul) / K.cast(K.shape(src)[1], dtype=K.dtype(mul))
-                # self.attention_agreement_cost = theano.printing.Print('alignment cost:')(self.attention_agreement_cost)
-                cost += attention_agreement_cost * self.attention_agreement_weight
 
         L1 = sum([K.sum(K.abs(param)) for param in self.params])
         L2 = sum([K.sum(K.square(param)) for param in self.params])
@@ -409,20 +337,7 @@ class EncoderDecoder(object):
 
         cost += params_regular
 
-        fast_train_cost = None
-        if self.with_reconstruction and self.with_fast_training:
-            if self.fix_base_parameters and not self.with_tied_weights:
-                # for this specific case, we only need to tune re-constructor
-                new_L1 = sum([K.sum(K.abs(param)) for param in self.new_params])
-                new_L2 = sum([K.sum(K.square(param)) for param in self.new_params])
-
-                new_params_regular = new_L1 * l1_reg_weight + new_L2 * l2_reg_weight
-
-                fast_train_cost = reconstruction_cost * self.reconstruction_weight + new_params_regular
-                if self.with_attention_agreement:
-                    fast_train_cost += attention_agreement_cost * self.attention_agreement_weight
-
-        return cost, fast_train_cost
+        return cost
 
 
     def build_trainer_with_model_parallel(self, src, src_mask, trg, trg_mask, ite, ps_device, devices, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
@@ -432,7 +347,7 @@ class EncoderDecoder(object):
         trg_mask_3d = K.expand_dims(trg_mask)
 
         # compute loss and grads
-        loss, fast_train_loss = self.calc_loss_with_model_parallel(src,
+        loss = self.calc_loss_with_model_parallel(src,
                                                                    src_mask_3d,
                                                                    trg,
                                                                    trg_mask_3d,
@@ -440,10 +355,8 @@ class EncoderDecoder(object):
                                                                    devices=devices,
                                                                    l1_reg_weight=l1_reg_weight,
                                                                    l2_reg_weight=l2_reg_weight)
+
         grads = tf.gradients(loss, self.params, colocate_gradients_with_ops=True)
-        if self.with_reconstruction and self.with_fast_training:
-            if self.fix_base_parameters and not self.with_tied_weights:
-                fast_grads = tf.gradients(fast_train_loss, self.new_params, colocate_gradients_with_ops=True)
 
         grads = grad_clip(grads, self.clip_c)
         updates = adadelta(self.params, grads)
@@ -451,29 +364,8 @@ class EncoderDecoder(object):
 
         self.train_fn = K.function(inps,
                                    [loss],
-                                   updates=updates,
-                                   name='train_function')
+                                   updates=updates)
 
-        if self.with_reconstruction and self.with_fast_training:
-            if self.fix_base_parameters and not self.with_tied_weights:
-                fast_grads = grad_clip(fast_grads, self.clip_c)
-                fast_updates = adadelta(self.new_params, fast_grads)
-                self.fast_train_fn = K.function(inps,
-                                                [fast_train_loss],
-                                                updates=fast_updates,
-                                                name='fast_train_function')
-            else:
-                base_training_ratio = K.minimum(ite / self.fast_training_iterations, numpy.float32(1.))
-                fast_updates = adadelta(self.params,
-                                        grads,
-                                        with_fast_training=self.with_fast_training,
-                                        fast_training_parameters=self.fast_training_parameters,
-                                        base_training_ratio=base_training_ratio)
-                fast_inps = inps + [ite]
-                self.fast_train_fn = K.function(fast_inps,
-                                                [loss],
-                                                updates=fast_updates,
-                                                name='fast_train_function')
 
     def calc_loss_with_model_parallel(self, src, src_mask_3d, trg, trg_mask_3d, ps_device, devices, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
         assert K._BACKEND == 'tensorflow'
@@ -517,29 +409,17 @@ class EncoderDecoder(object):
                                                     init_context=inverse_init_context,
                                                     c=hiddens,
                                                     c_mask=trg_mask_3d)
-            if self.with_reconstruction_error_on_states:
-                with tf.device(devices[0]):
-                    euclidean_distance = K.sum(K.square((inverse_hiddens - annotations) * src_mask_3d), axis=2)
-                    src_shape = K.shape(src)
-                    self.reconstruction_cost = K.sum(K.sqrt(euclidean_distance + 1e-6)) / K.cast(src_shape[1], K.dtype(euclidean_distance))
-            else:
-                with tf.device(devices[0]):
-                    if self.dropout > 0.:
-                        inverse_readout = Dropout(inverse_readout, self.dropout)
+            with tf.device(devices[0]):
+                if self.dropout > 0.:
+                    inverse_readout = Dropout(inverse_readout, self.dropout)
 
-                inverse_logits = self.inverse_logistic_layer.get_logits_with_multiple_devices(inverse_readout, ps_device, devices)
-                with tf.device(devices[0]):
-                    inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
-                    reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src, src_mask_3d)
+            inverse_logits = self.inverse_logistic_layer.get_logits_with_multiple_devices(inverse_readout, ps_device, devices)
+            with tf.device(devices[0]):
+                inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
+                reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src, src_mask_3d)
 
             with tf.device(devices[0]):
                 cost += reconstruction_cost * self.reconstruction_weight
-
-            if self.with_attention_agreement:
-                with tf.device(devices[0]):
-                    mul = -K.log(K.sum(alignment * K.permute_dimensions(inverse_alignment, (1, 0, 2)), axis=2) + 1e-6)
-                    attention_agreement_cost = K.sum(mul) / K.cast(K.shape(src)[1], dtype=K.dtype(mul))
-                    cost += attention_agreement_cost * self.attention_agreement_weight
 
         L1 = sum([K.sum(K.abs(param)) for param in self.params])
         L2 = sum([K.sum(K.square(param)) for param in self.params])
@@ -548,20 +428,7 @@ class EncoderDecoder(object):
 
         cost += params_regular
 
-        fast_train_cost = None
-        if self.with_reconstruction and self.with_fast_training:
-            if self.fix_base_parameters and not self.with_tied_weights:
-                # for this specific case, we only need to tune re-constructor
-                new_L1 = sum([K.sum(K.abs(param)) for param in self.new_params])
-                new_L2 = sum([K.sum(K.square(param)) for param in self.new_params])
-
-                new_params_regular = new_L1 * l1_reg_weight + new_L2 * l2_reg_weight
-
-                fast_train_cost = reconstruction_cost * self.reconstruction_weight + new_params_regular
-                if self.with_attention_agreement:
-                    fast_train_cost += attention_agreement_cost * self.attention_agreement_weight
-
-        return cost, fast_train_cost
+        return cost
 
 
     def build_trainer(self, src, src_mask, trg, trg_mask, ite,
@@ -583,7 +450,7 @@ class EncoderDecoder(object):
         trg_emb_shifted = K.permute_dimensions(K.shift_right(K.permute_dimensions(trg_emb, [1, 0, 2])),
                                                [1, 0, 2])
 
-        hiddens, readout, alignment = self.decoder.run_pipeline(state_below=trg_emb_shifted,
+        hiddens, readout, _ = self.decoder.run_pipeline(state_below=trg_emb_shifted,
                                             mask_below=trg_mask_3d,
                                             init_context=init_context,
                                             c=annotations,
@@ -607,39 +474,21 @@ class EncoderDecoder(object):
             src_emb_shifted = K.permute_dimensions(K.shift_right(K.permute_dimensions(src_emb, [1, 0, 2])),
                                                [1, 0, 2])
 
-            inverse_hiddens, inverse_readout, inverse_alignment = self.inverse_decoder.run_pipeline(state_below=src_emb_shifted,
+            _, inverse_readout, _ = self.inverse_decoder.run_pipeline(state_below=src_emb_shifted,
                                                 mask_below=src_mask_3d,
                                                 init_context=inverse_init_context,
                                                 c=hiddens,
                                                 c_mask=trg_mask_3d)
 
-            if self.with_reconstruction_error_on_states:
-                euclidean_distance = K.sum(K.square((inverse_hiddens - annotations) * src_mask_3d), axis=2)
-                # euclidean_distance = theano.printing.Print('euclidean distance:')(euclidean_distance)
-                # 1e-6 is eps to avoid NaN problem when using Euclidean distance
-                # The gradient of sqrt is undefined (nan) at 0. Use max(x,EPs) to make sure it is a positive number
-                # see http://stackoverflow.com/a/31923358/2859669 for more details
-                src_shape = K.shape(src)
-                self.reconstruction_cost = K.sum(K.sqrt(euclidean_distance + 1e-6)) / K.cast(src_shape[1], K.dtype(euclidean_distance))
-            else:
-                if self.dropout > 0.:
-                    inverse_readout = Dropout(inverse_readout, self.dropout)
+            if self.dropout > 0.:
+                inverse_readout = Dropout(inverse_readout, self.dropout)
 
-                inverse_logits = self.inverse_logistic_layer.get_logits(inverse_readout)
-                inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
-                self.reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src, src_mask_3d)
+            inverse_logits = self.inverse_logistic_layer.get_logits(inverse_readout)
+            inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
+            self.reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src, src_mask_3d)
 
 
             self.cost += self.reconstruction_cost * self.reconstruction_weight
-
-
-            if self.with_attention_agreement:
-                # Multiplication (MUL): the element-wise multiplication of corresponding matrix cells
-                mul = -K.log(K.sum(alignment * K.permute_dimensions(inverse_alignment, (1, 0, 2)), axis=2) + 1e-6)
-                self.attention_agreement_cost = K.sum(mul) / K.cast(K.shape(src)[1], dtype=K.dtype(mul))
-                self.cost += self.attention_agreement_cost * self.attention_agreement_weight
-
-
 
         self.L1 = sum([K.sum(K.abs(param)) for param in self.params])
         self.L2 = sum([K.sum(K.square(param)) for param in self.params])
@@ -661,40 +510,7 @@ class EncoderDecoder(object):
         # train function
         inps = [src, src_mask, trg, trg_mask]
 
-        self.train_fn = K.function(inps, [train_cost], updates=updates, name='train_function')
-
-
-        # for fast training
-        if self.with_reconstruction and self.with_fast_training:
-            if self.fix_base_parameters and not self.with_tied_weights:
-                # for this specific case, we only need to tune re constructor
-
-                self.new_L1 = sum([K.sum(K.abs(param)) for param in self.new_params])
-                self.new_L2 = sum([K.sum(K.square(param)) for param in self.new_params])
-
-                new_params_regular = self.new_L1 * l1_reg_weight + self.new_L2 * l2_reg_weight
-
-                # train cost
-                fast_train_cost = self.reconstruction_cost * self.reconstruction_weight + new_params_regular
-                if self.with_attention_agreement:
-                    fast_train_cost += self.attention_agreement_cost * self.attention_agreement_weight
-
-                # gradients
-                fast_grads = K.gradients(fast_train_cost, self.new_params)
-
-                # apply gradient clipping here
-                fast_grads = grad_clip(fast_grads, self.clip_c)
-
-                # updates
-                fast_updates = adadelta(self.new_params, fast_grads)
-
-                self.fast_train_fn = K.function(inps, [fast_train_cost], updates=fast_updates, name='fast_train_function')
-            else:
-                # for other strategies, we only need to limit the learning ratio of parameters from pre-trained model
-                base_training_ratio = K.minimum(ite / self.fast_training_iterations, numpy.float32(1.))
-                fast_updates = adadelta(self.params, grads, with_fast_training=self.with_fast_training, fast_training_parameters=self.fast_training_parameters, base_training_ratio=base_training_ratio)
-                fast_inps = [src, src_mask, trg, trg_mask, ite]
-                self.fast_train_fn = K.function(fast_inps, [train_cost], updates=fast_updates, name='fast_train_function')
+        self.train_fn = K.function(inps, [train_cost], updates=updates)
 
 
     def build_sampler(self):
@@ -702,8 +518,6 @@ class EncoderDecoder(object):
         # time steps, nb_samples
         x = K.placeholder((None, None), dtype='int32')
 
-        # Build Networks
-        # src_mask is None
         c = self.encoder.apply(x, None)    # None,None,None
 
         init_context = K.mean(c, axis=0)    # None,None
@@ -716,13 +530,12 @@ class EncoderDecoder(object):
 
         # compile function
         logger.info('Building compile_init_state_and_context function ...')
-        self.compile_init_and_context = K.function([x], outs,
-                                                        name='compile_init_and_context')
+        self.compile_init_and_context = K.function([x], outs)
         logger.info('Done')
 
         if self.with_attention:
-            c = K.placeholder((None, None, None))    # None,None,None
-            init_context = K.mean(c, axis=0)    # None,None
+            c = K.placeholder((None, None, None))
+            init_context = K.mean(c, axis=0)
         else:
             init_context = K.placeholder((None, None))
         # nb_samples
@@ -732,13 +545,12 @@ class EncoderDecoder(object):
         # if it is the first word, emb should be all zero, and it is indicated by -1
         trg_emb = lookup_table(self.table_trg.W, y, name='trg_emb')
 
-        # for with_attention=False
         if self.with_attention and self.with_coverage:
             cov_before = K.placeholder(shape=(None, None, None))
             if self.coverage_type is 'linguistic':
                 logger.info('Building compile_fertility ...')
                 fertility = self.decoder._get_fertility(c)
-                self.compile_fertility = K.function([c], [fertility], name='compile_fertility')
+                self.compile_fertility = K.function([c], [fertility])
                 logger.info('Done')
             else:
                 fertility = None
@@ -747,7 +559,6 @@ class EncoderDecoder(object):
             fertility = None
 
         # apply one step
-        # [next_state, ctxs] = self.decoder.apply(state_below=trg_emb,
         results = self.decoder.apply(state_below=trg_emb,
                                      init_state=cur_state,
                                      init_context=None if self.with_attention else init_context,
@@ -791,14 +602,13 @@ class EncoderDecoder(object):
                 inps.append(cov_before)
                 outs.append(cov)
 
-        self.compile_next_state_and_probs = K.function(inps, outs, name='compile_next_state_and_probs')
+        self.compile_next_state_and_probs = K.function(inps, outs)
         logger.info('Done')
 
         # for reconstruction
         if self.with_reconstruction:
-            # Build Networks
-            # trg_mask is None
             if self.with_attention:
+                # time steps, nb_samples, context_dim
                 inverse_c = K.placeholder((None, None, None))
                 # mean pooling
                 inverse_init_context = K.mean(inverse_c, axis=0)
@@ -813,7 +623,7 @@ class EncoderDecoder(object):
 
             # compile function
             logger.info('Building compile_inverse_init_state_and_context function ...')
-            self.compile_inverse_init_and_context = K.function([inverse_c], outs, name='compile_inverse_init_and_context')
+            self.compile_inverse_init_and_context = K.function([inverse_c], outs)
             logger.info('Done')
 
             # nb_samples
@@ -822,57 +632,41 @@ class EncoderDecoder(object):
             inverse_cur_state = K.placeholder(shape=(None, None))
             # time_steps, nb_samples
             trg_mask = K.placeholder(shape=(None, None))
+            # to 3D mask
+            trg_mask_3d = K.expand_dims(trg_mask)
             # if it is the first word, emb should be all zero, and it is indicated by -1
             src_emb = lookup_table(self.table_src.W, src, name='src_emb')
-
-            # for with_attention=False
-            if self.with_attention and self.with_reconstruction_coverage:
-                inverse_cov_before = K.placeholder(shape=(None, None, None))
-                if self.coverage_type is 'linguistic':
-                    inverse_fertility = self.decoder._get_fertility(inverse_c)
-                else:
-                    inverse_fertility = None
-            else:
-                inverse_cov_before = None
-                inverse_fertility = None
 
             # apply one step
             inverse_results = self.inverse_decoder.apply(state_below=src_emb,
                                          init_state=inverse_cur_state,
                                          init_context=None if self.with_attention else inverse_init_context,
                                          c=inverse_c if self.with_attention else None,
-                                         c_mask=trg_mask,
-                                         one_step=True,
-                                         cov_before=inverse_cov_before,
-                                         fertility=inverse_fertility)
+                                         c_mask=trg_mask_3d,
+                                         one_step=True)
+
             inverse_next_state = inverse_results[0]
             if self.with_attention:
                 inverse_ctxs, inverse_alignment = inverse_results[1], inverse_results[2]
-                if self.with_reconstruction_coverage:
-                    inverse_cov = inverse_results[3]
             else:
                 # if with_attention=False, we always use init_context as the source representation
                 inverse_ctxs = init_context
 
-            if not self.with_reconstruction_error_on_states:
-                inverse_readout = self.inverse_decoder.readout(inverse_next_state, inverse_ctxs, src_emb)
+            inverse_readout = self.inverse_decoder.readout(inverse_next_state, inverse_ctxs, src_emb)
 
-                # maxout
-                if self.maxout_part > 1:
-                    inverse_readout = self.inverse_decoder.one_step_maxout(inverse_readout)
+            # maxout
+            if self.maxout_part > 1:
+                inverse_readout = self.inverse_decoder.one_step_maxout(inverse_readout)
 
-                # apply dropout
-                if self.dropout > 0.:
-                    inverse_readout = Dropout(inverse_readout, self.dropout)
+            # apply dropout
+            if self.dropout > 0.:
+                inverse_readout = Dropout(inverse_readout, self.dropout)
 
-                # compute the softmax probability
-                inverse_next_probs = get_probs_from_logits(self.inverse_logistic_layer.get_logits(inverse_readout))
+            # compute the softmax probability
+            inverse_next_probs = get_probs_from_logits(self.inverse_logistic_layer.get_logits(inverse_readout))
 
-                # sample from softmax distribution to get the sample
-                inverse_next_sample = K.argmax(K.random_multinomial(pvals=inverse_next_probs))
-            else:
-                inverse_next_probs = K.variable(0.)
-                inverse_next_sample = K.variable(0.)
+            # sample from softmax distribution to get the sample
+            inverse_next_sample = K.argmax(K.random_multinomial(pvals=inverse_next_probs))
 
             # compile function
             logger.info('Building compile_inverse_next_state_and_probs function ...')
@@ -884,11 +678,8 @@ class EncoderDecoder(object):
             outs = [inverse_next_probs, inverse_next_state, inverse_next_sample]
             if self.with_attention:
                 outs.append(inverse_alignment)
-                if self.with_reconstruction_coverage:
-                    inps.append(inverse_cov_before)
-                    outs.append(inverse_cov)
 
-            self.compile_inverse_next_state_and_probs = K.function(inps, outs, name='compile_inverse_next_state_and_probs')
+            self.compile_inverse_next_state_and_probs = K.function(inps, outs)
             logger.info('Done')
 
     def save(self, path=None):

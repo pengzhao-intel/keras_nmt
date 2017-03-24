@@ -86,6 +86,16 @@ def ensure_vocabularies(**kwargs):
                                             unk=unk,
                                             unk_id=unk_id,
                                             max_nb_of_vacabulary=trg_vocab_size)
+
+def split(data, num_part):
+    if num_part == 1:
+        return [data]
+    parts = [[] for _ in xrange(num_part)]
+    for i in xrange(len(data)):
+        parts[i % num_part].append(data[i])
+    parts = [np.array(i, dtype=data.dtype) for i in parts]
+    return parts
+
 def main(configuration, ps_device=None, devices=None):
 
     prefer_to_model_parallel = configuration['prefer_to_model_parallel']
@@ -107,6 +117,12 @@ def main(configuration, ps_device=None, devices=None):
         if prefer_to_model_parallel:
             enc_dec.build_trainer_with_model_parallel(src, src_mask, trg, trg_mask, ite, ps_device, devices, l1_reg_weight=l1_reg_weight, l2_reg_weight=l2_reg_weight)
         else:
+            # clone the input
+            src = [K.placeholder(shape=(None, None), dtype='int32') for _ in devices]
+            src_mask = [K.placeholder(shape=(None, None)) for _ in devices]
+            trg = [K.placeholder(shape=(None, None), dtype='int32') for _ in devices]
+            trg_mask = [K.placeholder(shape=(None, None)) for _ in devices]
+
             enc_dec.build_trainer_with_data_parallel(src,
                                                      src_mask,
                                                      trg,
@@ -146,9 +162,6 @@ def main(configuration, ps_device=None, devices=None):
     # train function
     train_fn = enc_dec.train_fn
 
-    if configuration['with_reconstruction'] and configuration['with_fast_training']:
-        fast_train_fn = enc_dec.fast_train_fn
-
     # train data
     ds = DStream(**configuration)
 
@@ -164,13 +177,27 @@ def main(configuration, ps_device=None, devices=None):
     for epoch in range(max_epochs):
         for x, x_mask, y, y_mask in ds.get_iterator():
             last_time = time.time()
-            if configuration['with_reconstruction'] and configuration['with_fast_training'] and iters < configuration['fast_training_iterations']:
-                if configuration['fix_base_parameters'] and not configuration['with_tied_weights']:
-                    tc = fast_train_fn([x.T, x_mask.T, y.T, y_mask.T])
-                else:
-                    tc = fast_train_fn([x.T, x_mask.T, y.T, y_mask.T, iters])
+            # for data parallel, we need to split the data into #num devices part
+            if devices and not prefer_to_model_parallel:
+                # ignore the case that the number of samples is less than the number of devices
+                num_devices = len(devices)
+                num_samples = len(x)
+
+                if num_samples < num_devices:
+                    logger.warn('epoch %d \t updates %d ignored current mini-batch, since its number of samples (%d) < the number of devices (%d)'
+                        % (epoch, iters, num_samples, num_devices))
+                    continue
+
+                inputs = []
+                for data in (x, x_mask, y, y_mask):
+                    parts = split(data, num_devices)
+                    parts = [item.T for item in parts]
+                    inputs.extend(parts)
             else:
-                tc = train_fn([x.T, x_mask.T, y.T, y_mask.T])
+                inputs = [x.T, x_mask.T, y.T, y_mask.T]
+
+            tc = train_fn(inputs)
+
             cur_time = time.time()
             iters += 1
             logger.info('epoch %d \t updates %d train cost %.4f use time %.4f'

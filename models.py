@@ -282,11 +282,13 @@ class Decoder(object):
         z1 = K.sigmoid(K.dot(h_tm1, self.W_n1_z) + x_z + self.b_n1_z)
         r1 = K.sigmoid(K.dot(h_tm1, self.W_n1_r) + x_r + self.b_n1_r)
         h1 = K.tanh(r1 * K.dot(h_tm1, self.W_n1_h) + x_h + self.b_n1_h)
+        # nb_samples, n_hids
         h1 = z1 * h_tm1 + (1. - z1) * h1
         h1 = x_m * h1 + (1. - x_m) * h_tm1
 
-        # for attention model
+        # 1, nb_samples, dim
         p_from_h = K.expand_dims(K.dot(h1, self.B_hp) + self.b_tt, dim=0)
+        # time_stpes, nb_samples, dim
         p = p_from_h + p_from_c
 
 
@@ -297,7 +299,10 @@ class Decoder(object):
         # energy = exp(dot(tanh(p), self.D_pe) + self.c_tt).reshape((source_len, target_num))
         # since self.c_tt has nothing to do with the probs, why? since it contributes an e^c_tt() to the the denominator and nominator
         # note: self.D_pe has a shape of (hidden_output_dim,1)
+        # time_steps, nb_samples, 1
         energy = K.exp(K.dot(K.tanh(p), self.D_pe))
+
+        # c_m: time_steps, nb_samples
         if c_m is not None:
             energy *= c_m
 
@@ -306,9 +311,6 @@ class Decoder(object):
         probs = K.squeeze(probs, axis=2)
 
         ctx = K.sum(c * K.expand_dims(probs), axis=0)
-
-        # input_time_steps, nb_samples
-
 
         # update coverage after producing attention probabilities at time t
         if self.with_coverage:
@@ -364,7 +366,7 @@ class Decoder(object):
         assert  K.ndim(mask_below) == K.ndim(state_below)
 
         if one_step:
-            assert init_state is not None, 'previous state mush be provided'
+            assert init_state is not None, 'previous state must be provided'
 
         if init_state is None:
             init_state = self.create_init_state(init_context)
@@ -374,7 +376,7 @@ class Decoder(object):
         state_below_xr = K.dot(state_below, self.W_xr)
 
         if self.with_attention:
-            # for attention model
+            # time steps, nb_samples, n_hids
             p_from_c = K.reshape(K.dot(c, self.A_cp), shape=(K.shape(c)[0], K.shape(c)[1], self.n_hids))
         else:
             c_z = K.dot(init_context, self.W_cz)
@@ -497,12 +499,7 @@ class Decoder(object):
 # for reconstruction
 class InverseDecoder(Decoder):
     def __init__(self, n_in, n_hids, n_cdim, maxout_part=2,
-                 name='rnn_inverse_decoder', with_attention=True,
-                 with_coverage=False, coverage_dim=1, coverage_type='linguistic', max_fertility=2,
-                 with_context_gate=False,
-                 with_tied_weights=False,
-                 with_reconstruction_error_on_states=False,
-                 decoder=None):
+                 name='rnn_inverse_decoder', with_attention=True):
 
         self.n_in = n_in
         self.n_hids = n_hids
@@ -510,20 +507,12 @@ class InverseDecoder(Decoder):
         self.maxout_part = maxout_part
         self.pname = name
         self.with_attention = with_attention
-        self.with_coverage = with_coverage
-        self.coverage_dim = coverage_dim
-        assert coverage_type in ['linguistic', 'neural'], 'Coverage type must be either linguistic or neural'
-        self.coverage_type = coverage_type
-        self.max_fertility = max_fertility
-        self.with_context_gate = with_context_gate
-        self.with_tied_weights = with_tied_weights
-        self.with_reconstruction_error_on_states = with_reconstruction_error_on_states
-        if self.with_tied_weights:
-            assert decoder is not None
-        self._init_params(decoder)
+        self.with_coverage = False
+        self.with_context_gate = False
+        self._init_params()
 
 
-    def _init_params(self, decoder=None):
+    def _init_params(self):
         # generally, parameters with shape shape_ch = (self.c_ndim, self.n_hids) can be applied with tied weights
         # this for combining lastly generated words and decoder state,
         # and thus cannot be applied with tied weights
@@ -545,18 +534,13 @@ class InverseDecoder(Decoder):
                        self.b_z, self.b_r, self.b_h]
 
         shape_ch = (self.n_cdim, self.n_hids)
-        if self.with_tied_weights:
-            self.W_cz = K.variable(numpy.transpose(K.get_value(decoder.W_cz)), name=_p(self.pname, 'W_cz'))
-            self.W_cr = K.variable(numpy.transpose(K.get_value(decoder.W_cr)), name=_p(self.pname, 'W_cr'))
-            self.W_ch = K.variable(numpy.transpose(K.get_value (decoder.W_ch)), name=_p(self.pname, 'W_ch'))
-            self.W_c_init = K.variable(numpy.transpose(K.get_value(decoder.W_c_init)), name=_p(self.pname, 'W_c_init'))
-        else:
-            self.W_cz = norm_weight(shape=shape_ch, name=_p(self.pname, 'W_cz'))
-            self.W_cr = norm_weight(shape=shape_ch, name=_p(self.pname, 'W_cr'))
-            self.W_ch = norm_weight(shape=shape_ch, name=_p(self.pname, 'W_ch'))
-            self.W_c_init = norm_weight(shape=shape_ch, name=_p(self.pname, 'W_c_init'))
-            # we don't add the new params if we use tied_weights, since we reuse the weights in decoder
-            self.params += [self.W_cz, self.W_cr, self.W_ch, self.W_c_init]
+
+        self.W_cz = norm_weight(shape=shape_ch, name=_p(self.pname, 'W_cz'))
+        self.W_cr = norm_weight(shape=shape_ch, name=_p(self.pname, 'W_cr'))
+        self.W_ch = norm_weight(shape=shape_ch, name=_p(self.pname, 'W_ch'))
+        self.W_c_init = norm_weight(shape=shape_ch, name=_p(self.pname, 'W_c_init'))
+        # we don't add the new params if we use tied_weights, since we reuse the weights in decoder
+        self.params += [self.W_cz, self.W_cr, self.W_ch, self.W_c_init]
 
         self.b_c_init = constant_weight(shape=(self.n_hids,), name=_p(self.pname, 'b_c_init'))
         self.params += [self.b_c_init]
@@ -578,11 +562,8 @@ class InverseDecoder(Decoder):
         ###############################################
 
         if self.with_attention:
-            if self.with_tied_weights:
-                self.A_cp = K.variable(numpy.transpose(K.get_value(decoder.A_cp)), name=_p(self.pname, 'A_cp'))
-            else:
-                self.A_cp = norm_weight(shape=shape_ch, name=_p(self.pname, 'A_cp'))
-                self.params += [self.A_cp]
+            self.A_cp = norm_weight(shape=shape_ch, name=_p(self.pname, 'A_cp'))
+            self.params += [self.A_cp]
 
             self.B_hp = norm_weight(shape=shape_hh, name=_p(self.pname, 'B_hp'))
             self.b_tt = constant_weight(shape=(self.n_hids,), name=_p(self.pname, 'b_tt'))
@@ -590,74 +571,16 @@ class InverseDecoder(Decoder):
             # self.c_tt = constant_weight(shape=(1,), name=_p(self.pname, 'c_tt'))
             self.params += [self.B_hp, self.b_tt, self.D_pe]
 
+        # for error on encoder states, we don't need the probability
+        # thus no need for readout, which costs a large number of parameters
+        # for readout
+        n_out = self.n_in * self.maxout_part
+        self.W_o_c = norm_weight(shape=(self.n_cdim, n_out), name=_p(self.pname, 'W_out_c'))
+        self.W_o_h = norm_weight(shape=(self.n_hids, n_out), name=_p(self.pname, 'W_out_h'))
+        self.W_o_e = norm_weight(shape=(self.n_in, n_out), name=_p(self.pname, 'W_out_e'))
+        self.b_o = constant_weight(shape=(n_out,), name=_p(self.pname, 'b_out_o'))
 
-
-            # coverage only works for attention model
-            if self.with_coverage:
-                shape_covh = (self.coverage_dim, self.n_hids)
-                self.C_covp = norm_weight(shape=shape_covh, name=_p(self.pname, 'Cov_covp'))
-
-                if self.coverage_type is 'linguistic':
-                    # for linguistic coverage, fertility model is necessary since it yields better translation and alignment quality
-                    self.W_cov_fertility = norm_weight(shape=(self.n_cdim, 1), name=_p(self.pname, 'W_cov_fertility'))
-                    self.b_cov_fertility = constant_weight(shape=(1,), name=_p(self.pname, 'b_cov_fertility'))
-                    self.params += [self.W_cov_fertility, self.b_cov_fertility]
-                else:
-                    # for neural network based coverage, gating is necessary
-                    shape_covcov = (self.coverage_dim, self.coverage_dim)
-                    self.W_cov_h = ortho_weight(shape=shape_covcov, name=_p(self.pname, 'W_cov_h'))
-                    self.W_cov_r = ortho_weight(shape=shape_covcov, name=_p(self.pname, 'W_cov_r'))
-                    self.W_cov_z = ortho_weight(shape=shape_covcov, name=_p(self.pname, 'W_cov_z'))
-                    self.b_cov_h = constant_weight(shape=(self.coverage_dim,), name=_p(self.pname, 'b_cov_h'))
-                    self.b_cov_r = constant_weight(shape=(self.coverage_dim,), name=_p(self.pname, 'b_cov_r'))
-                    self.b_cov_z = constant_weight(shape=(self.coverage_dim,), name=_p(self.pname, 'b_cov_z'))
-
-                    self.params += [self.W_cov_h, self.W_cov_r, self.W_cov_z, self.b_cov_h, self.b_cov_r, self.b_cov_z]
-
-                    # parameters for coverage inputs
-                    # attention probablity
-                    self.W_cov_ph = norm_weight(shape=(1, self.coverage_dim), name=_p(self.pname, 'W_cov_ph'))
-                    self.W_cov_pr = norm_weight(shape=(1, self.coverage_dim), name=_p(self.pname, 'W_cov_pr'))
-                    self.W_cov_pz = norm_weight(shape=(1, self.coverage_dim), name=_p(self.pname, 'W_cov_pz'))
-                    # source annotations
-                    self.W_cov_ch = norm_weight(shape=(self.n_cdim, self.coverage_dim), name=_p(self.pname, 'W_cov_ch'))
-                    self.W_cov_cr = norm_weight(shape=(self.n_cdim, self.coverage_dim), name=_p(self.pname, 'W_cov_cr'))
-                    self.W_cov_cz = norm_weight(shape=(self.n_cdim, self.coverage_dim), name=_p(self.pname, 'W_cov_cz'))
-                    # previous decoding states
-                    self.W_cov_hh = norm_weight(shape=(self.n_hids, self.coverage_dim), name=_p(self.pname, 'W_cov_hh'))
-                    self.W_cov_hr = norm_weight(shape=(self.n_hids, self.coverage_dim), name=_p(self.pname, 'W_cov_hr'))
-                    self.W_cov_hz = norm_weight(shape=(self.n_hids, self.coverage_dim), name=_p(self.pname, 'W_cov_hz'))
-
-                    self.params += [self.W_cov_ph, self.W_cov_pr, self.W_cov_pz, self.W_cov_ch, self.W_cov_cr, self.W_cov_cz, self.W_cov_hh, self.W_cov_hr, self.W_cov_hz]
-
-
-
-        # for context gate, which works for both with_attention and with_context modes
-        if self.with_context_gate:
-            # parameters for coverage inputs
-            # input form target context
-            if self.with_tied_weights:
-                self.W_ctx_c = K. variable(numpy.transpose(K.get_value(decoder.W_ctx_c)), name=_p(self.pname, 'W_ctx_c'))
-            else:
-                self.W_ctx_c = norm_weight(shape=(self.n_cdim, self.n_hids), name=_p(self.pname, 'W_ctx_c'))
-                self.params += [self.W_ctx_c]
-
-            self.W_ctx_h = norm_weight(shape=(self.n_hids, self.n_hids), name=_p(self.pname, 'W_ctx_h'))
-            self.b_ctx = constant_weight(shape=(self.n_hids,), name=_p(self.pname, 'b_ctx'))
-            self.params += [self.W_ctx_h, self.b_ctx]
-
-        if not self.with_reconstruction_error_on_states:
-            # for error on encoder states, we don't need the probability
-            # thus no need for readout, which costs a large number of parameters
-            # for readout
-            n_out = self.n_in * self.maxout_part
-            self.W_o_c = norm_weight(shape=(self.n_cdim, n_out), name=_p(self.pname, 'W_out_c'))
-            self.W_o_h = norm_weight(shape=(self.n_hids, n_out), name=_p(self.pname, 'W_out_h'))
-            self.W_o_e = norm_weight(shape=(self.n_in, n_out), name=_p(self.pname, 'W_out_e'))
-            self.b_o = constant_weight(shape=(n_out,), name=_p(self.pname, 'b_out_o'))
-
-            self.params += [self.W_o_c, self.W_o_h, self.W_o_e, self.b_o]
-
+        self.params += [self.W_o_c, self.W_o_h, self.W_o_e, self.b_o]
 
 
     def run_pipeline(self, state_below, mask_below, init_context=None, c=None, c_mask=None):
@@ -679,14 +602,6 @@ class InverseDecoder(Decoder):
             # TODO: verify
             ctxs = ReplicateLayer(init_context, n_times)
             probs = None
-
-
-        # for error on encoder states
-        # we don't need the generation probabilities for the source words
-        # which saves a large number of parameters and computations
-        if self.with_reconstruction_error_on_states:
-            # we don't need the readout for this setting
-            return hiddens, hiddens, probs
 
         # readout
         readout = self.readout(hiddens, ctxs, state_below)

@@ -19,10 +19,8 @@ try:
 except:
     import pickle
 
-def _lower_case_and_norm_numbers(line):
+def _to_lower_case(line):
     line = line.lower()
-    line = re.sub(r"\d+", '<NUM>', line)
-    # TODO: more processing
     return line
 
 # no bos; and eos is also used as padding
@@ -32,7 +30,7 @@ def _build_vocabulary(files, encoding,
                      unk='<UNK>',
                      unk_id=1,
                      max_nb_of_vacabulary=None,
-                     preprocess=_lower_case_and_norm_numbers):
+                     preprocess=_to_lower_case):
     stat = {}
     for filepath in files:
         with open_(filepath, encoding=encoding) as f:
@@ -187,7 +185,7 @@ def _get_tr_stream(src_vocab,
                   src_files,
                   trg_files,
                   encoding='UTF-8',
-                  preprocess=_lower_case_and_norm_numbers,
+                  preprocess=_to_lower_case,
                   src_vocab_size=30000,
                   trg_vocab_size=30000,
                   eos='</S>',
@@ -261,7 +259,7 @@ def _get_vl_stream(src_vocab,
                   src_files,
                   trg_files_list,
                   encoding='UTF-8',
-                  preprocess=_lower_case_and_norm_numbers,
+                  preprocess=_to_lower_case,
                   src_vocab_size=30000,
                   trg_vocab_size=30000,
                   eos='</S>',
@@ -326,7 +324,7 @@ def _get_vl_stream(src_vocab,
 
 def _get_stream_from_lines(vocab,
               lines,
-              preprocess=_lower_case_and_norm_numbers,
+              preprocess=_to_lower_case,
               vocab_size=30000,
               eos_id=0,
               eos='</S>',
@@ -418,7 +416,7 @@ def build_vocabulary_if_needed(files,
                      unk='<UNK>',
                      unk_id=1,
                      max_nb_of_vacabulary=None,
-                     preprocess=_lower_case_and_norm_numbers):
+                     preprocess=_to_lower_case):
             # build vocabulary
         if os.path.isfile(voc_filepath):
             vocab = _load_vocabulary(voc_filepath)
@@ -439,7 +437,7 @@ def get_generator_for_training(src_vocab,
                   src_files,
                   trg_files,
                   encoding='UTF-8',
-                  preprocess=_lower_case_and_norm_numbers,
+                  preprocess=_to_lower_case,
                   src_vocab_size=30000,
                   trg_vocab_size=30000,
                   eos='</S>',
@@ -485,7 +483,7 @@ def get_src_sentences_with_references(src_vocab,
                   src_files,
                   trg_files_list,
                   encoding='UTF-8',
-                  preprocess=_lower_case_and_norm_numbers,
+                  preprocess=_to_lower_case,
                   src_vocab_size=30000,
                   trg_vocab_size=30000,
                   eos='</S>',
@@ -520,7 +518,7 @@ def get_generator_for_testing(src_vocab,
                   src_files,
                   trg_files_list,
                   encoding='UTF-8',
-                  preprocess=_lower_case_and_norm_numbers,
+                  preprocess=_to_lower_case,
                   src_vocab_size=30000,
                   trg_vocab_size=30000,
                   batch_size=80,
@@ -547,11 +545,9 @@ def get_generator_for_testing(src_vocab,
 
     return _get_generator_for_testing(stream)
 
-
-
 def get_src_sentences(vocab,
               lines,
-              preprocess=_lower_case_and_norm_numbers,
+              preprocess=_to_lower_case,
               vocab_size=30000,
               eos_id=0,
               unk_id=1,
@@ -574,7 +570,7 @@ def get_src_sentences(vocab,
 
 def get_generator_for_prediction(vocab,
               lines,
-              preprocess=_lower_case_and_norm_numbers,
+              preprocess=_to_lower_case,
               vocab_size=30000,
               batch_size=80,
               eos_id=0,
