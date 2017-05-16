@@ -178,6 +178,7 @@ if __name__ == '__main__':
 
     is_chief = args.task_index == 0
 
+    # target of the session can be any worker or ps
     host = "grpc://" + worker_hosts[args.task_index]
     session = tf.Session(host)
     K.set_session(session)

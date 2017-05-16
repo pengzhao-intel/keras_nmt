@@ -2,12 +2,12 @@
 import numpy
 import keras.backend as K
 import backend
-from tensorflow.contrib.layers.python.layers.regularizers import l1_regularizer
 
 K.dot = backend.dot
 K.shift_right = backend.shift_right
 K.foreach = backend.foreach
 K.random_multinomial = backend.random_multinomial
+
 import logging
 import os
 from models import LookupTable, LogisticRegression, BidirectionalEncoder, Decoder, InverseDecoder
@@ -104,11 +104,12 @@ if K._BACKEND == 'tensorflow':
 
         return K.sum(ce) / nb_samples
 
+
 def lookup_table(table, indice, name=None):
     zero_mask = K.zeros_like(indice)
     one_mask = K.ones_like(indice)
     if K._BACKEND == 'tensorflow':
-        from tensorflow import select as _select
+        from tensorflow import where as _select
     else:
         from theano.tensor import switch as _select
     mask = _select (indice < 0 , zero_mask, one_mask)
@@ -116,6 +117,7 @@ def lookup_table(table, indice, name=None):
     output = K.gather(table, indice)
     output *= K.cast(K.expand_dims(mask), dtype=K.dtype(output))
     return output
+
 
 def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None):
     assert K.ndim(targets) == 2    # time_steps * nb_samples
@@ -157,6 +159,7 @@ def calc_loss_from_readout(readout, targets, targets_mask, logisticRegressionLay
         logits_flat = K.reshape(logits, shape=(-1, n_out))
         cost = get_category_cross_entropy_from_flat_logits(logits_flat, targets, targets_mask)
     return cost
+
 
 class EncoderDecoder(object):
 
@@ -247,6 +250,7 @@ class EncoderDecoder(object):
         loss_list = []
         grads_list = []
 
+        # TODO: group the devices by hosts, first calculate the averaged gradients for each host
         for i, device in enumerate(devices):
             with tf.device(device):
                 loss = self.calc_loss(src[i],

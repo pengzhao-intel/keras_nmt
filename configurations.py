@@ -8,7 +8,7 @@ def get_config_search_coverage():
     config['output_kbest'] = False
 
     # configurations for coverage model
-    config['with_coverage'] = True
+    config['with_coverage'] = False
     # the coverage_dim for linguistic coverage is always 1
     config['coverage_dim'] = 100
     # coverage type: 'linguistic' or 'neural'
@@ -22,8 +22,8 @@ def get_config_search_coverage():
     config['reconstruction_weight'] = 1.
 
     # Sequences longer than this will be deleted
-    config['seq_len_src'] = 10
-    config['seq_len_trg'] = 10
+    config['seq_len_src'] = 80
+    config['seq_len_trg'] = 80
 
     # Number of hidden units in GRU/LSTM
     config['nhids_src'] = 1000

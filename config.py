@@ -1,9 +1,9 @@
 dict(
     # Sequences longer than this will be deleted
-    seq_len_src=80,
-    seq_len_trg=80,
+    seq_len_src=10,
+    seq_len_trg=10,
     # Batch size of train data
-    batch_size=80,
+    batch_size=2,
     # vocabulary size, include '</S>'
     src_vocab_size=30002,
     trg_vocab_size=30002,
@@ -18,7 +18,7 @@ dict(
     valid_trg='./data/valid_trg',
     valid_out='./data/valid_out',
 
-    sample_freq=2,
+    sample_freq=1,
 
     # Maxmum number of epoch
     finish_after=20,
@@ -28,6 +28,6 @@ dict(
     valid_freq=2,
     valid_freq_fine=5000,
     # Start bleu validation after this many updates
-    val_burn_in=2,
+    val_burn_in=1,
     val_burn_in_fine=150000,
 )

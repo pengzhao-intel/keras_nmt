@@ -28,20 +28,6 @@ def lookup_table(table, indice, name=None):
     output *= K.cast(K.expand_dims(mask), dtype=K.dtype(output))
     return output
 
-def test_cross_entropy():
-    from nmt import get_category_cross_entropy_from_flat_logits
-
-    logits_flat = K.placeholder((None, 4))
-    targets = K.placeholder((None,), dtype='int64')
-    outputs = get_category_cross_entropy_from_flat_logits(logits_flat, targets)
-    fn = K.function([logits_flat, targets], outputs=[outputs])
-    logits_flat_val = [[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]]
-    targets_val = [0, 3]
-    outputs_val = fn([logits_flat_val, targets_val])
-    print outputs_val
-
-def test_gradient():
-    pass
 
 def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None):
     targets_flat = K.flatten(targets)
@@ -57,6 +43,7 @@ def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None)
         return K.sum(ce) / K.sum(mask_flat)
     else:
         return K.mean(ce)
+
 
 def get_probs_from_logits(logits):
     logits_shape = K.shape(logits)

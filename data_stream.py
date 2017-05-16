@@ -4,8 +4,8 @@ import cPickle as pkl
 import os
 from fuel.datasets import TextFile
 from fuel.streams import DataStream
-from datasets import _lower_case_and_norm_numbers
-from datasets import _get_tr_stream
+from datasets import to_lower_case
+from datasets import get_tr_stream
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -33,30 +33,27 @@ class DStream(object):
         self.src_vocab_size = len(self.src_dict)
         self.trg_vocab_size = len (self.trg_dict)
 
-        self.stream = _get_tr_stream(src_vocab=self.src_dict,
-                      trg_vocab=self.trg_dict,
-                      src_files=[self.train_src],
-                      trg_files=[self.train_trg],
-                      encoding='UTF-8',
-                      preprocess=_lower_case_and_norm_numbers,
-                      src_vocab_size=len(self.src_dict),
-                      trg_vocab_size=len(self.trg_dict),
-                      eos=self.eos_token,
-                      eos_id=self.eos_id,
-                      unk=self.unk_token,
-                      unk_id=self.unk_id,
-                      seq_len=80,
-                      batch_size=self.batch_size,
-                      sort_k_batches=self.sort_k_batches)
-
-
+        self.stream = get_tr_stream(src_vocab=self.src_dict,
+                                    trg_vocab=self.trg_dict,
+                                    src_files=[self.train_src],
+                                    trg_files=[self.train_trg],
+                                    encoding='UTF-8',
+                                    preprocess=to_lower_case,
+                                    src_vocab_size=len(self.src_dict),
+                                    trg_vocab_size=len(self.trg_dict),
+                                    eos=self.eos_token,
+                                    eos_id=self.eos_id,
+                                    unk=self.unk_token,
+                                    unk_id=self.unk_id,
+                                    seq_len=80,
+                                    batch_size=self.batch_size,
+                                    sort_k_batches=self.sort_k_batches)
 
     def get_iterator(self):
         self.stream.reset()
         iterator = self.stream.get_epoch_iterator()
         for n in iterator:
             yield n[:4]    # ground_truth: id of ground truth, not one-hot representation
-
 
     def _get_dict(self):
 
@@ -71,6 +68,7 @@ class DStream(object):
             logger.error("file [{}] do not exist".format(self.vocab_trg))
 
         return src_dict, trg_dict
+
 
 def get_devtest_stream(data_type='valid', input_file=None, **kwards):
 
@@ -90,7 +88,7 @@ def get_devtest_stream(data_type='valid', input_file=None, **kwards):
 
     dataset = TextFile(files=[data_file],
                        encoding='UTF-8',
-                       preprocess=_lower_case_and_norm_numbers,
+                       preprocess=to_lower_case,
                        dictionary=pkl.load(open(vocab_src, 'rb')),
                        level='word',
                        unk_token=unk_token,
@@ -107,7 +105,7 @@ def get_stream(input_file, vocab_file, **kwards):
 
     dataset = TextFile(files=[input_file],
                        encoding='UTF-8',
-                       preprocess=_lower_case_and_norm_numbers,
+                       preprocess=to_lower_case,
                        dictionary=pkl.load(open(vocab_file, 'rb')),
                        level='word',
                        unk_token=unk_token,

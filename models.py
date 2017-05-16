@@ -287,7 +287,7 @@ class Decoder(object):
         h1 = x_m * h1 + (1. - x_m) * h_tm1
 
         # 1, nb_samples, dim
-        p_from_h = K.expand_dims(K.dot(h1, self.B_hp) + self.b_tt, dim=0)
+        p_from_h = K.expand_dims(K.dot(h1, self.B_hp) + self.b_tt, axis=0)
         # time_stpes, nb_samples, dim
         p = p_from_h + p_from_c
 

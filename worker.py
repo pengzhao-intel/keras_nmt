@@ -1,6 +1,7 @@
 
 import tensorflow as tf
 
+
 def main(_):
 
     FLAGS = tf.app.flags.FLAGS

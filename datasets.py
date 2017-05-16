@@ -19,18 +19,18 @@ try:
 except:
     import pickle
 
-def _to_lower_case(line):
+def to_lower_case(line):
     line = line.lower()
     return line
 
 # no bos; and eos is also used as padding
 def _build_vocabulary(files, encoding,
-                     eos='</S>',
-                     eos_id=0,
-                     unk='<UNK>',
-                     unk_id=1,
-                     max_nb_of_vacabulary=None,
-                     preprocess=_to_lower_case):
+                      eos='</S>',
+                      eos_id=0,
+                      unk='<UNK>',
+                      unk_id=1,
+                      max_nb_of_vacabulary=None,
+                      preprocess=to_lower_case):
     stat = {}
     for filepath in files:
         with open_(filepath, encoding=encoding) as f:
@@ -180,12 +180,12 @@ class _to_token(object):
         return [self.id_to_token_vocab[_id] for _id in id_sequence]
 
 
-def _get_tr_stream(src_vocab,
+def get_tr_stream(src_vocab,
                   trg_vocab,
                   src_files,
                   trg_files,
                   encoding='UTF-8',
-                  preprocess=_to_lower_case,
+                  preprocess=to_lower_case,
                   src_vocab_size=30000,
                   trg_vocab_size=30000,
                   eos='</S>',
@@ -195,7 +195,7 @@ def _get_tr_stream(src_vocab,
                   seq_len=50,
                   batch_size=80,
                   sort_k_batches=12,
-                   **kwargs):
+                  **kwargs):
     """Prepares the training data stream."""
 
     src_dataset = TextFile(src_files, src_vocab,
@@ -255,19 +255,19 @@ def _get_tr_stream(src_vocab,
 
 
 def _get_vl_stream(src_vocab,
-                  trg_vocab,
-                  src_files,
-                  trg_files_list,
-                  encoding='UTF-8',
-                  preprocess=_to_lower_case,
-                  src_vocab_size=30000,
-                  trg_vocab_size=30000,
-                  eos='</S>',
-                  eos_id=0,
-                  unk='<UNK>',
-                  unk_id=1,
-                  batch_size=80,
-                  sort_k_batches=12, **kwargs):
+                   trg_vocab,
+                   src_files,
+                   trg_files_list,
+                   encoding='UTF-8',
+                   preprocess=to_lower_case,
+                   src_vocab_size=30000,
+                   trg_vocab_size=30000,
+                   eos='</S>',
+                   eos_id=0,
+                   unk='<UNK>',
+                   unk_id=1,
+                   batch_size=80,
+                   sort_k_batches=12, **kwargs):
     """Prepares the validation/test data stream."""
     src_dataset = TextFile(src_files, src_vocab,
                            preprocess=preprocess,
@@ -323,14 +323,14 @@ def _get_vl_stream(src_vocab,
 
 
 def _get_stream_from_lines(vocab,
-              lines,
-              preprocess=_to_lower_case,
-              vocab_size=30000,
-              eos_id=0,
-              eos='</S>',
-              unk_id=1,
-              batch_size=80,
-              sort_k_batches=12):
+                           lines,
+                           preprocess=to_lower_case,
+                           vocab_size=30000,
+                           eos_id=0,
+                           eos='</S>',
+                           unk_id=1,
+                           batch_size=80,
+                           sort_k_batches=12):
     if preprocess is not None:
         lines = [preprocess(line) + ' ' + eos for line in lines]
     dataset = IterableDataset(iterables=lines)
@@ -409,14 +409,14 @@ def _get_src_sentences(stream):
     return list(n[:2])
 
 def build_vocabulary_if_needed(files,
-                     voc_filepath ,
-                     encoding='UTF-8',
-                     eos='</S>',
-                     eos_id=0,
-                     unk='<UNK>',
-                     unk_id=1,
-                     max_nb_of_vacabulary=None,
-                     preprocess=_to_lower_case):
+                               voc_filepath,
+                               encoding='UTF-8',
+                               eos='</S>',
+                               eos_id=0,
+                               unk='<UNK>',
+                               unk_id=1,
+                               max_nb_of_vacabulary=None,
+                               preprocess=to_lower_case):
             # build vocabulary
         if os.path.isfile(voc_filepath):
             vocab = _load_vocabulary(voc_filepath)
@@ -433,39 +433,39 @@ def build_vocabulary_if_needed(files,
         return vocab
 
 def get_generator_for_training(src_vocab,
-                  trg_vocab,
-                  src_files,
-                  trg_files,
-                  encoding='UTF-8',
-                  preprocess=_to_lower_case,
-                  src_vocab_size=30000,
-                  trg_vocab_size=30000,
-                  eos='</S>',
-                  eos_id=0,
-                  unk='<UNK>',
-                  unk_id=1,
-                  seq_len=50,
-                  batch_size=80,
-                  sort_k_batches=12,
-                  softmax_output_num_sampled=512,
-                  **kwargs):
+                               trg_vocab,
+                               src_files,
+                               trg_files,
+                               encoding='UTF-8',
+                               preprocess=to_lower_case,
+                               src_vocab_size=30000,
+                               trg_vocab_size=30000,
+                               eos='</S>',
+                               eos_id=0,
+                               unk='<UNK>',
+                               unk_id=1,
+                               seq_len=50,
+                               batch_size=80,
+                               sort_k_batches=12,
+                               softmax_output_num_sampled=512,
+                               **kwargs):
 
-    stream = _get_tr_stream(src_vocab=src_vocab,
-                  trg_vocab=trg_vocab,
-                  src_files=src_files,
-                  trg_files=trg_files,
-                  encoding=encoding,
-                  preprocess=preprocess,
-                  src_vocab_size=src_vocab_size,
-                  trg_vocab_size=trg_vocab_size,
-                  eos=eos,
-                  eos_id=eos_id,
-                  unk=unk,
-                  unk_id=unk_id,
-                  seq_len=seq_len,
-                  batch_size=batch_size,
-                  sort_k_batches=sort_k_batches,
-                  **kwargs)
+    stream = get_tr_stream(src_vocab=src_vocab,
+                           trg_vocab=trg_vocab,
+                           src_files=src_files,
+                           trg_files=trg_files,
+                           encoding=encoding,
+                           preprocess=preprocess,
+                           src_vocab_size=src_vocab_size,
+                           trg_vocab_size=trg_vocab_size,
+                           eos=eos,
+                           eos_id=eos_id,
+                           unk=unk,
+                           unk_id=unk_id,
+                           seq_len=seq_len,
+                           batch_size=batch_size,
+                           sort_k_batches=sort_k_batches,
+                           **kwargs)
 
     return _get_generator_for_training(stream, use_sampled_softmax=softmax_output_num_sampled < trg_vocab_size)
 
@@ -479,18 +479,18 @@ def get_line_count(files, encoding='UTF-8'):
     return count
 
 def get_src_sentences_with_references(src_vocab,
-                  trg_vocab,
-                  src_files,
-                  trg_files_list,
-                  encoding='UTF-8',
-                  preprocess=_to_lower_case,
-                  src_vocab_size=30000,
-                  trg_vocab_size=30000,
-                  eos='</S>',
-                  eos_id=0,
-                  unk='<UNK>',
-                  unk_id=1,
-                  sort_k_batches=12, **kwargs):
+                                      trg_vocab,
+                                      src_files,
+                                      trg_files_list,
+                                      encoding='UTF-8',
+                                      preprocess=to_lower_case,
+                                      src_vocab_size=30000,
+                                      trg_vocab_size=30000,
+                                      eos='</S>',
+                                      eos_id=0,
+                                      unk='<UNK>',
+                                      unk_id=1,
+                                      sort_k_batches=12, **kwargs):
 
     line_count = get_line_count (src_files, encoding)
 
@@ -514,19 +514,19 @@ def get_src_sentences_with_references(src_vocab,
     return outputs
 
 def get_generator_for_testing(src_vocab,
-                  trg_vocab,
-                  src_files,
-                  trg_files_list,
-                  encoding='UTF-8',
-                  preprocess=_to_lower_case,
-                  src_vocab_size=30000,
-                  trg_vocab_size=30000,
-                  batch_size=80,
-                  eos='</S>',
-                  eos_id=0,
-                  unk='<UNK>',
-                  unk_id=1,
-                  sort_k_batches=12, **kwargs):
+                              trg_vocab,
+                              src_files,
+                              trg_files_list,
+                              encoding='UTF-8',
+                              preprocess=to_lower_case,
+                              src_vocab_size=30000,
+                              trg_vocab_size=30000,
+                              batch_size=80,
+                              eos='</S>',
+                              eos_id=0,
+                              unk='<UNK>',
+                              unk_id=1,
+                              sort_k_batches=12, **kwargs):
 
     stream = _get_vl_stream(src_vocab=src_vocab,
                   trg_vocab=trg_vocab,
@@ -546,13 +546,13 @@ def get_generator_for_testing(src_vocab,
     return _get_generator_for_testing(stream)
 
 def get_src_sentences(vocab,
-              lines,
-              preprocess=_to_lower_case,
-              vocab_size=30000,
-              eos_id=0,
-              unk_id=1,
-              eos='</S>',
-              sort_k_batches=12):
+                      lines,
+                      preprocess=to_lower_case,
+                      vocab_size=30000,
+                      eos_id=0,
+                      unk_id=1,
+                      eos='</S>',
+                      sort_k_batches=12):
 
     stream = _get_stream_from_lines(vocab=vocab,
               lines=lines ,
@@ -569,14 +569,14 @@ def get_src_sentences(vocab,
     return outputs
 
 def get_generator_for_prediction(vocab,
-              lines,
-              preprocess=_to_lower_case,
-              vocab_size=30000,
-              batch_size=80,
-              eos_id=0,
-              unk_id=1,
-              eos='</S>',
-              sort_k_batches=12):
+                                 lines,
+                                 preprocess=to_lower_case,
+                                 vocab_size=30000,
+                                 batch_size=80,
+                                 eos_id=0,
+                                 unk_id=1,
+                                 eos='</S>',
+                                 sort_k_batches=12):
 
     stream = _get_stream_from_lines(vocab=vocab,
               lines=lines ,
