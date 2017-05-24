@@ -18,7 +18,8 @@ def Pinyin(num):
 def get_pinyin(chinese):
     pinyin = []
 
-    # chinese = word.decode('utf-8').encode('gb18030')
+    # only accept Chinese word in GBK encoding
+    chinese = chinese.decode('utf-8').encode('gb18030')
     i = 0
     while i < len(chinese) - 1:
         p = ord(chinese[i:i + 1])
