@@ -19,9 +19,11 @@ try:
 except:
     import pickle
 
+
 def to_lower_case(line):
     line = line.lower()
     return line
+
 
 # no bos; and eos is also used as padding
 def _build_vocabulary(files, encoding,
@@ -50,7 +52,7 @@ def _build_vocabulary(files, encoding,
     vocab = {}
     vocab[eos] = eos_id
     vocab[unk] = unk_id
-    special_token_idxs = set([ eos_id, unk_id])
+    special_token_idxs = set([eos_id, unk_id])
     token_id = 0
     for token, _ in sorted_items:
         while token_id in special_token_idxs:
@@ -66,6 +68,7 @@ def _build_id_to_token_vocabulary(vocab):
         id_to_token_dict[_id] = token
     return id_to_token_dict
 
+
 def _save_vocabulary(vocab, filepath):
     with open(filepath, 'wb') as f:
         pickle.dump(vocab, f, protocol=1)
@@ -77,14 +80,17 @@ def _load_vocabulary(filepath):
 
 class _length(object):
     """Maps out of vocabulary token index to unk token index."""
+
     def __init__(self, target_source_index=-1):
         self.target_source_index = target_source_index
+
     def __call__(self, sentences):
         return len(sentences[self.target_source_index])
 
 
 class _PaddingWithToken(Padding):
     """Padds a stream with given end of sequence idx."""
+
     def __init__(self, data_stream, pad_id, **kwargs):
         kwargs['data_stream'] = data_stream
         self.pad_id = pad_id
@@ -114,7 +120,7 @@ class _PaddingWithToken(Padding):
             batch_with_masks.append(padded_batch)
 
             mask = np.zeros((len(source_batch), max_sequence_length),
-                               self.mask_dtype)
+                            self.mask_dtype)
             for i, sequence_length in enumerate(lengths):
                 mask[i, :sequence_length] = 1
             batch_with_masks.append(mask)
@@ -123,6 +129,7 @@ class _PaddingWithToken(Padding):
 
 class _oov_to_unk(object):
     """Maps out of vocabulary token index to unk token index."""
+
     def __init__(self,
                  vocab_size=30000,
                  unk_id=1):
@@ -132,11 +139,12 @@ class _oov_to_unk(object):
     def __call__(self, sentences):
         return tuple([[x if x < self.vocab_size else self.unk_id
                        for x in sentence]
-                       for sentence in sentences])
+                      for sentence in sentences])
 
 
 class _remove_tokens(object):
     """Remove special tokens from a sentence."""
+
     def __init__(self, special_token_ids):
         self.special_token_ids = set(special_token_ids)
 
@@ -147,6 +155,7 @@ class _remove_tokens(object):
 
 class _too_long(object):
     """Filters sequences longer than given sequence length."""
+
     def __init__(self, seq_len=50):
         self.seq_len = seq_len
 
@@ -157,6 +166,7 @@ class _too_long(object):
 
 class _to_one_hot(object):
     """Filters sequences longer than given sequence length."""
+
     def __init__(self, target_source_index, vacabuary_size):
         self.target_source_index = target_source_index
         self.vacabuary_size = vacabuary_size
@@ -173,6 +183,7 @@ class _to_one_hot(object):
 
 class _to_token(object):
     """Converts id sequence to token sequence."""
+
     def __init__(self, id_to_token_vocab):
         self.id_to_token_vocab = id_to_token_vocab
 
@@ -214,13 +225,12 @@ def get_tr_stream(src_vocab,
     src_data_stream = DataStream(src_dataset)
     trg_data_stream = DataStream(trg_dataset)
 
-
     # Replace out of vocabulary tokens with unk token
     if src_vocab_size < len(src_vocab):
         src_data_stream = Mapping(src_data_stream,
-                         _oov_to_unk(vocab_size=src_vocab_size, unk_id=unk_id))
+                                  _oov_to_unk(vocab_size=src_vocab_size, unk_id=unk_id))
 
-    if trg_vocab_size < len (trg_vocab):
+    if trg_vocab_size < len(trg_vocab):
         trg_data_stream = Mapping(trg_data_stream,
                                   _oov_to_unk(vocab_size=trg_vocab_size, unk_id=unk_id))
 
@@ -290,17 +300,17 @@ def _get_vl_stream(src_vocab,
     # Replace out of vocabulary tokens with unk token
     if src_vocab_size < len(src_vocab):
         src_data_stream = Mapping(src_data_stream,
-                         _oov_to_unk(vocab_size=src_vocab_size,
-                                     unk_id=unk_id))
+                                  _oov_to_unk(vocab_size=src_vocab_size,
+                                              unk_id=unk_id))
 
-    if trg_vocab_size < len (trg_vocab):
+    if trg_vocab_size < len(trg_vocab):
         trg_data_stream_list = [Mapping(trg_data_stream,
-                         _oov_to_unk(vocab_size=trg_vocab_size,
-                                     unk_id=unk_id)) for trg_data_stream in trg_data_stream_list]
+                                        _oov_to_unk(vocab_size=trg_vocab_size,
+                                                    unk_id=unk_id)) for trg_data_stream in trg_data_stream_list]
 
     # Merge them to get a source, multiple references
     stream = Merge([src_data_stream] + trg_data_stream_list,
-                   ('source',) + tuple(['reference_%d' % i for i in range(len(trg_data_stream_list))  ]))
+                   ('source',) + tuple(['reference_%d' % i for i in range(len(trg_data_stream_list))]))
 
     # Build a batched version of stream to read k batches ahead
     stream = Batch(stream, iteration_scheme=ConstantScheme(batch_size * sort_k_batches))
@@ -336,13 +346,12 @@ def _get_stream_from_lines(vocab,
     dataset = IterableDataset(iterables=lines)
     stream = DataStream(dataset)
     stream = Mapping(stream,
-                 lambda x: ([ vocab[w] if w in vocab else unk_id for w in  x[0].split()],))
+                     lambda x: ([vocab[w] if w in vocab else unk_id for w in x[0].split()],))
 
     if vocab_size < len(vocab):
         stream = Mapping(stream, _oov_to_unk(vocab_size=vocab_size, unk_id=unk_id))
     # Build a batched version of stream to read k batches ahead
     stream = Batch(stream, iteration_scheme=ConstantScheme(batch_size * sort_k_batches))
-
 
     # Sort all samples in the read-ahead batch
     stream = Mapping(stream, SortMapping(_length(target_source_index=0)))
@@ -370,11 +379,12 @@ def _get_generator_for_training(stream, use_sampled_softmax=False):
         try:
             n = next(iterator)
             if use_sampled_softmax:
-                yield [n[0], n[1], n[2], n[3]], n[2]    # ground_truth: id of ground truth
+                yield [n[0], n[1], n[2], n[3]], n[2]  # ground_truth: id of ground truth
             else:
-                yield [n[0], n[1], n[2], n[3]], n[-1]    # one-hot ground truth
+                yield [n[0], n[1], n[2], n[3]], n[-1]  # one-hot ground truth
         except StopIteration:
             iterator = _get_iterator(stream)
+
 
 def _get_generator_for_testing(stream):
     iterator = _get_iterator(stream)
@@ -387,12 +397,14 @@ def _get_generator_for_testing(stream):
         except StopIteration:
             iterator = _get_iterator(stream)
 
+
 def _get_src_sentences_with_references(stream):
     iterator = _get_iterator(stream)
     references = []
     n = next(iterator)
     references.extend(izip(*n[2:]))
     return list(n[:2]), references
+
 
 def _get_generator_for_prediction(stream):
     iterator = _get_iterator(stream)
@@ -403,10 +415,12 @@ def _get_generator_for_prediction(stream):
         except StopIteration:
             iterator = _get_iterator(stream)
 
+
 def _get_src_sentences(stream):
     iterator = _get_iterator(stream)
     n = next(iterator)
     return list(n[:2])
+
 
 def build_vocabulary_if_needed(files,
                                voc_filepath,
@@ -417,20 +431,21 @@ def build_vocabulary_if_needed(files,
                                unk_id=1,
                                max_nb_of_vacabulary=None,
                                preprocess=to_lower_case):
-            # build vocabulary
-        if os.path.isfile(voc_filepath):
-            vocab = _load_vocabulary(voc_filepath)
-        else:
-            vocab = _build_vocabulary(files,
-                                     encoding=encoding,
-                                     eos=eos,
-                                     eos_id=eos_id,
-                                     unk=unk,
-                                     unk_id=unk_id,
-                                     max_nb_of_vacabulary=max_nb_of_vacabulary)
-            _save_vocabulary(vocab, voc_filepath)
+    # build vocabulary
+    if os.path.isfile(voc_filepath):
+        vocab = _load_vocabulary(voc_filepath)
+    else:
+        vocab = _build_vocabulary(files,
+                                  encoding=encoding,
+                                  eos=eos,
+                                  eos_id=eos_id,
+                                  unk=unk,
+                                  unk_id=unk_id,
+                                  max_nb_of_vacabulary=max_nb_of_vacabulary)
+        _save_vocabulary(vocab, voc_filepath)
 
-        return vocab
+    return vocab
+
 
 def get_generator_for_training(src_vocab,
                                trg_vocab,
@@ -449,7 +464,6 @@ def get_generator_for_training(src_vocab,
                                sort_k_batches=12,
                                softmax_output_num_sampled=512,
                                **kwargs):
-
     stream = get_tr_stream(src_vocab=src_vocab,
                            trg_vocab=trg_vocab,
                            src_files=src_files,
@@ -469,6 +483,7 @@ def get_generator_for_training(src_vocab,
 
     return _get_generator_for_training(stream, use_sampled_softmax=softmax_output_num_sampled < trg_vocab_size)
 
+
 def get_line_count(files, encoding='UTF-8'):
     count = 0
     for file_path in files:
@@ -477,6 +492,7 @@ def get_line_count(files, encoding='UTF-8'):
                 if line.rstrip('\n'):
                     count += 1
     return count
+
 
 def get_src_sentences_with_references(src_vocab,
                                       trg_vocab,
@@ -491,27 +507,27 @@ def get_src_sentences_with_references(src_vocab,
                                       unk='<UNK>',
                                       unk_id=1,
                                       sort_k_batches=12, **kwargs):
-
-    line_count = get_line_count (src_files, encoding)
+    line_count = get_line_count(src_files, encoding)
 
     stream = _get_vl_stream(src_vocab=src_vocab,
-                  trg_vocab=trg_vocab,
-                  src_files=src_files,
-                  trg_files_list=trg_files_list,
-                  encoding=encoding,
-                  preprocess=preprocess,
-                  src_vocab_size=src_vocab_size,
-                  trg_vocab_size=trg_vocab_size,
-                  eos=eos,
-                  eos_id=eos_id,
-                  unk=unk,
-                  unk_id=unk_id,
-                  batch_size=line_count,
-                  sort_k_batches=sort_k_batches, **kwargs)
+                            trg_vocab=trg_vocab,
+                            src_files=src_files,
+                            trg_files_list=trg_files_list,
+                            encoding=encoding,
+                            preprocess=preprocess,
+                            src_vocab_size=src_vocab_size,
+                            trg_vocab_size=trg_vocab_size,
+                            eos=eos,
+                            eos_id=eos_id,
+                            unk=unk,
+                            unk_id=unk_id,
+                            batch_size=line_count,
+                            sort_k_batches=sort_k_batches, **kwargs)
 
     outputs = _get_src_sentences_with_references(stream)
     stream.close()
     return outputs
+
 
 def get_generator_for_testing(src_vocab,
                               trg_vocab,
@@ -527,23 +543,23 @@ def get_generator_for_testing(src_vocab,
                               unk='<UNK>',
                               unk_id=1,
                               sort_k_batches=12, **kwargs):
-
     stream = _get_vl_stream(src_vocab=src_vocab,
-                  trg_vocab=trg_vocab,
-                  src_files=src_files,
-                  trg_files_list=trg_files_list,
-                  encoding=encoding,
-                  preprocess=preprocess,
-                  src_vocab_size=src_vocab_size,
-                  trg_vocab_size=trg_vocab_size,
-                  eos=eos,
-                  eos_id=eos_id,
-                  unk=unk,
-                  unk_id=unk_id,
-                  batch_size=batch_size,
-                  sort_k_batches=sort_k_batches, **kwargs)
+                            trg_vocab=trg_vocab,
+                            src_files=src_files,
+                            trg_files_list=trg_files_list,
+                            encoding=encoding,
+                            preprocess=preprocess,
+                            src_vocab_size=src_vocab_size,
+                            trg_vocab_size=trg_vocab_size,
+                            eos=eos,
+                            eos_id=eos_id,
+                            unk=unk,
+                            unk_id=unk_id,
+                            batch_size=batch_size,
+                            sort_k_batches=sort_k_batches, **kwargs)
 
     return _get_generator_for_testing(stream)
+
 
 def get_src_sentences(vocab,
                       lines,
@@ -553,20 +569,20 @@ def get_src_sentences(vocab,
                       unk_id=1,
                       eos='</S>',
                       sort_k_batches=12):
-
     stream = _get_stream_from_lines(vocab=vocab,
-              lines=lines ,
-              preprocess=preprocess,
-              vocab_size=vocab_size,
-              eos_id=eos_id,
-              unk_id=unk_id,
-              eos=eos,
-              batch_size=len(lines),
-              sort_k_batches=sort_k_batches)
+                                    lines=lines,
+                                    preprocess=preprocess,
+                                    vocab_size=vocab_size,
+                                    eos_id=eos_id,
+                                    unk_id=unk_id,
+                                    eos=eos,
+                                    batch_size=len(lines),
+                                    sort_k_batches=sort_k_batches)
 
     outputs = _get_src_sentences(stream)
     stream.close()
     return outputs
+
 
 def get_generator_for_prediction(vocab,
                                  lines,
@@ -577,15 +593,14 @@ def get_generator_for_prediction(vocab,
                                  unk_id=1,
                                  eos='</S>',
                                  sort_k_batches=12):
-
     stream = _get_stream_from_lines(vocab=vocab,
-              lines=lines ,
-              preprocess=preprocess,
-              vocab_size=vocab_size,
-              eos_id=eos_id,
-              unk_id=unk_id,
-              eos=eos,
-              batch_size=batch_size,
-              sort_k_batches=sort_k_batches)
+                                    lines=lines,
+                                    preprocess=preprocess,
+                                    vocab_size=vocab_size,
+                                    eos_id=eos_id,
+                                    unk_id=unk_id,
+                                    eos=eos,
+                                    batch_size=batch_size,
+                                    sort_k_batches=sort_k_batches)
 
     return _get_generator_for_prediction(stream)

@@ -235,6 +235,8 @@ def main(configuration, ps_device=None, devices=None):
 
 if __name__ == '__main__':
 
+    logger = logging.getLogger(__name__)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--proto",
                         default="get_config_search_coverage",
@@ -242,8 +244,6 @@ if __name__ == '__main__':
     parser.add_argument("--state", help="State to use")
     parser.add_argument("--start", type=int, default=0, help="Iterations to start")
     args = parser.parse_args()
-
-    logger = logging.getLogger(__name__)
 
     configuration = getattr(configurations, args.proto)()
 

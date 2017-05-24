@@ -1,4 +1,10 @@
 # rnn encoder-decoder for machine translation
+import logging
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler())
+logger.setLevel(logging.INFO)
+
 import numpy
 import keras.backend as K
 import backend
@@ -8,13 +14,10 @@ K.shift_right = backend.shift_right
 K.foreach = backend.foreach
 K.random_multinomial = backend.random_multinomial
 
-import logging
 import os
 from models import LookupTable, LogisticRegression, BidirectionalEncoder, Decoder, InverseDecoder
 from utils import Dropout
 from algorithm import adadelta, grad_clip
-
-logger = logging.getLogger(__name__)
 
 # TODO: move to backend
 
@@ -22,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 if K._BACKEND == 'tensorflow':
     import tensorflow as tf
+
+
     def avg_grads(grads_list):
         grads = grads_list[0]
         num_grads = len(grads)
@@ -32,7 +37,9 @@ if K._BACKEND == 'tensorflow':
             grads[i] = tf.div(grads[i], num_grads)
         return grads
 
+
     tf.set_random_seed(20080524)
+
 
     def sampled_softmax_loss(weights,
                              biases,
@@ -82,7 +89,7 @@ if K._BACKEND == 'tensorflow':
         Returns:
           A `batch_size` 1-D tensor of per-example sampled softmax losses.
         """
-        assert K.ndim(inputs) == 3    # time_steps, number_samples, input_dim
+        assert K.ndim(inputs) == 3  # time_steps, number_samples, input_dim
         nb_samples = K.cast(K.shape(inputs)[1], K.dtype(weights))
 
         inputs = K.reshape(inputs, (-1, K.shape(inputs)[2]))
@@ -90,16 +97,16 @@ if K._BACKEND == 'tensorflow':
         labels = K.cast(labels, 'int64')
 
         ce = tf.nn.sampled_softmax_loss(weights=weights,
-                                          biases=biases,
-                                          inputs=inputs,
-                                          labels=labels,
-                                          num_sampled=num_sampled,
-                                          num_classes=num_classes,
-                                          num_true=num_true,
-                                          sampled_values=sampled_values,
-                                          remove_accidental_hits=remove_accidental_hits)
+                                        biases=biases,
+                                        inputs=inputs,
+                                        labels=labels,
+                                        num_sampled=num_sampled,
+                                        num_classes=num_classes,
+                                        num_true=num_true,
+                                        sampled_values=sampled_values,
+                                        remove_accidental_hits=remove_accidental_hits)
         if mask is not None:
-            mask_flat = K.flatten(mask)    # time_steps*nb_samples
+            mask_flat = K.flatten(mask)  # time_steps*nb_samples
             ce *= mask_flat
 
         return K.sum(ce) / nb_samples
@@ -112,7 +119,7 @@ def lookup_table(table, indice, name=None):
         from tensorflow import where as _select
     else:
         from theano.tensor import switch as _select
-    mask = _select (indice < 0 , zero_mask, one_mask)
+    mask = _select(indice < 0, zero_mask, one_mask)
     indice *= mask
     output = K.gather(table, indice)
     output *= K.cast(K.expand_dims(mask), dtype=K.dtype(output))
@@ -120,7 +127,7 @@ def lookup_table(table, indice, name=None):
 
 
 def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None):
-    assert K.ndim(targets) == 2    # time_steps * nb_samples
+    assert K.ndim(targets) == 2  # time_steps * nb_samples
     nb_samples = K.cast(K.shape(targets)[1], K.dtype(logits_flat))
 
     targets_flat = K.flatten(targets)
@@ -135,11 +142,13 @@ def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None)
 
     return K.sum(ce) / nb_samples
 
+
 def get_probs_from_logits(logits):
     logits_shape = K.shape(logits)
     logits_flat = K.reshape(logits, shape=(-1, logits_shape[K.ndim(logits) - 1]))
     probs_flat = K.softmax(logits_flat)
     return K.reshape(probs_flat, shape=logits_shape)
+
 
 # TODO: apply sampled_softmax to re-construction loss
 
@@ -148,12 +157,12 @@ def calc_loss_from_readout(readout, targets, targets_mask, logisticRegressionLay
     if n_out >= softmax_output_num_sampled and K._BACKEND == 'tensorflow':
         logger.info('Used sampled_softmax with number of class samples = {}'.format(softmax_output_num_sampled))
         cost = sampled_softmax_loss(weights=K.transpose(logisticRegressionLayer.W),
-                             biases=logisticRegressionLayer.b,
-                             num_sampled=softmax_output_num_sampled,
-                             num_classes=n_out,
-                             labels=targets,
-                             inputs=readout,
-                             mask=targets_mask)
+                                    biases=logisticRegressionLayer.b,
+                                    num_sampled=softmax_output_num_sampled,
+                                    num_classes=n_out,
+                                    labels=targets,
+                                    inputs=readout,
+                                    mask=targets_mask)
     else:
         logits = logisticRegressionLayer.get_logits(readout)
         logits_flat = K.reshape(logits, shape=(-1, n_out))
@@ -162,7 +171,6 @@ def calc_loss_from_readout(readout, targets, targets_mask, logisticRegressionLay
 
 
 class EncoderDecoder(object):
-
     def __init__(self, **kwargs):
         self.n_in_src = kwargs.pop('nembed_src')
         self.n_in_trg = kwargs.pop('nembed_trg')
@@ -224,8 +232,8 @@ class EncoderDecoder(object):
         if self.with_reconstruction:
             # note the source and target sides are reversed
             self.inverse_decoder = InverseDecoder(self.n_in_src, 2 * self.n_hids_src, self.n_hids_trg,
-                                   with_attention=self.with_attention,
-                                   maxout_part=self.maxout_part, name='rnn_inverse_decoder')
+                                                  with_attention=self.with_attention,
+                                                  maxout_part=self.maxout_part, name='rnn_inverse_decoder')
 
             self.layers.append(self.inverse_decoder)
 
@@ -278,7 +286,6 @@ class EncoderDecoder(object):
                                    [avg_loss] + loss_list,
                                    updates=updates)
 
-
     def calc_loss(self, src, src_mask_3d, trg, trg_mask_3d,
                   l1_reg_weight=1e-6,
                   l2_reg_weight=1e-6,
@@ -288,7 +295,7 @@ class EncoderDecoder(object):
         # init_context = annotations[0, :, -self.n_hids_src:]
         # modification #1
         # mean pooling
-        init_context = K.sum (annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+        init_context = K.sum(annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
 
         trg_emb = self.table_trg.apply(trg)
         # shift_right assumes a 3D tensor, and time steps is dimension one
@@ -296,10 +303,10 @@ class EncoderDecoder(object):
                                                [1, 0, 2])
 
         hiddens, readout, alignment = self.decoder.run_pipeline(state_below=trg_emb_shifted,
-                                            mask_below=trg_mask_3d,
-                                            init_context=init_context,
-                                            c=annotations,
-                                            c_mask=src_mask_3d)
+                                                                mask_below=trg_mask_3d,
+                                                                init_context=init_context,
+                                                                c=annotations,
+                                                                c_mask=src_mask_3d)
 
         # apply dropout
         if self.dropout > 0.:
@@ -307,22 +314,23 @@ class EncoderDecoder(object):
             readout = Dropout(readout, self.dropout)
 
         cost = calc_loss_from_readout(readout=readout,
-                               targets=trg,
-                               targets_mask=trg_mask_3d,
-                               logisticRegressionLayer=self.logistic_layer,
-                               softmax_output_num_sampled=softmax_output_num_sampled)
+                                      targets=trg,
+                                      targets_mask=trg_mask_3d,
+                                      logisticRegressionLayer=self.logistic_layer,
+                                      softmax_output_num_sampled=softmax_output_num_sampled)
 
         if self.with_reconstruction:
             inverse_init_context = K.sum(hiddens * trg_mask_3d, axis=0) / K.sum(trg_mask_3d, axis=0)
             src_emb = self.table_src.apply(src)
             src_emb_shifted = K.permute_dimensions(K.shift_right(K.permute_dimensions(src_emb, [1, 0, 2])),
-                                               [1, 0, 2])
+                                                   [1, 0, 2])
 
-            inverse_hiddens, inverse_readout, inverse_alignment = self.inverse_decoder.run_pipeline(state_below=src_emb_shifted,
-                                                mask_below=src_mask_3d,
-                                                init_context=inverse_init_context,
-                                                c=hiddens,
-                                                c_mask=trg_mask_3d)
+            inverse_hiddens, inverse_readout, inverse_alignment = self.inverse_decoder.run_pipeline(
+                state_below=src_emb_shifted,
+                mask_below=src_mask_3d,
+                init_context=inverse_init_context,
+                c=hiddens,
+                c_mask=trg_mask_3d)
 
             if self.dropout > 0.:
                 inverse_readout = Dropout(inverse_readout, self.dropout)
@@ -333,7 +341,6 @@ class EncoderDecoder(object):
 
             cost += reconstruction_cost * self.reconstruction_weight
 
-
         L1 = sum([K.sum(K.abs(param)) for param in self.params])
         L2 = sum([K.sum(K.square(param)) for param in self.params])
 
@@ -343,8 +350,8 @@ class EncoderDecoder(object):
 
         return cost
 
-
-    def build_trainer_with_model_parallel(self, src, src_mask, trg, trg_mask, ite, ps_device, devices, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
+    def build_trainer_with_model_parallel(self, src, src_mask, trg, trg_mask, ite, ps_device, devices,
+                                          l1_reg_weight=1e-6, l2_reg_weight=1e-6):
         assert K._BACKEND == 'tensorflow'
 
         src_mask_3d = K.expand_dims(src_mask)
@@ -352,13 +359,13 @@ class EncoderDecoder(object):
 
         # compute loss and grads
         loss = self.calc_loss_with_model_parallel(src,
-                                                                   src_mask_3d,
-                                                                   trg,
-                                                                   trg_mask_3d,
-                                                                   ps_device=ps_device,
-                                                                   devices=devices,
-                                                                   l1_reg_weight=l1_reg_weight,
-                                                                   l2_reg_weight=l2_reg_weight)
+                                                  src_mask_3d,
+                                                  trg,
+                                                  trg_mask_3d,
+                                                  ps_device=ps_device,
+                                                  devices=devices,
+                                                  l1_reg_weight=l1_reg_weight,
+                                                  l2_reg_weight=l2_reg_weight)
 
         grads = tf.gradients(loss, self.params, colocate_gradients_with_ops=True)
 
@@ -370,27 +377,26 @@ class EncoderDecoder(object):
                                    [loss],
                                    updates=updates)
 
-
-    def calc_loss_with_model_parallel(self, src, src_mask_3d, trg, trg_mask_3d, ps_device, devices, l1_reg_weight=1e-6, l2_reg_weight=1e-6):
+    def calc_loss_with_model_parallel(self, src, src_mask_3d, trg, trg_mask_3d, ps_device, devices, l1_reg_weight=1e-6,
+                                      l2_reg_weight=1e-6):
         assert K._BACKEND == 'tensorflow'
-
 
         with tf.device(devices[0]):
 
             annotations = self.encoder.apply(src, src_mask_3d)
 
-            init_context = K.sum (annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+            init_context = K.sum(annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
 
             trg_emb = self.table_trg.apply(trg)
             # shift_right assumes a 3D tensor, and time steps is dimension one
             trg_emb_shifted = K.permute_dimensions(K.shift_right(K.permute_dimensions(trg_emb, [1, 0, 2])),
                                                    [1, 0, 2])
             hiddens, readout, alignment = self.decoder.run_pipeline(
-                                                state_below=trg_emb_shifted,
-                                                mask_below=trg_mask_3d,
-                                                init_context=init_context,
-                                                c=annotations,
-                                                c_mask=src_mask_3d)
+                state_below=trg_emb_shifted,
+                mask_below=trg_mask_3d,
+                init_context=init_context,
+                c=annotations,
+                c_mask=src_mask_3d)
 
             if self.dropout > 0.:
                 logger.info('Apply dropout with p = {}'.format(self.dropout))
@@ -407,17 +413,19 @@ class EncoderDecoder(object):
                 inverse_init_context = K.sum(hiddens * trg_mask_3d, axis=0) / K.sum(trg_mask_3d, axis=0)
                 src_emb = self.table_src.apply(src)
                 src_emb_shifted = K.permute_dimensions(K.shift_right(K.permute_dimensions(
-                                                    src_emb, [1, 0, 2])), [1, 0, 2])
-                inverse_hiddens, inverse_readout, inverse_alignment = self.inverse_decoder.run_pipeline(state_below=src_emb_shifted,
-                                                    mask_below=src_mask_3d,
-                                                    init_context=inverse_init_context,
-                                                    c=hiddens,
-                                                    c_mask=trg_mask_3d)
+                    src_emb, [1, 0, 2])), [1, 0, 2])
+                inverse_hiddens, inverse_readout, inverse_alignment = self.inverse_decoder.run_pipeline(
+                    state_below=src_emb_shifted,
+                    mask_below=src_mask_3d,
+                    init_context=inverse_init_context,
+                    c=hiddens,
+                    c_mask=trg_mask_3d)
             with tf.device(devices[0]):
                 if self.dropout > 0.:
                     inverse_readout = Dropout(inverse_readout, self.dropout)
 
-            inverse_logits = self.inverse_logistic_layer.get_logits_with_multiple_devices(inverse_readout, ps_device, devices)
+            inverse_logits = self.inverse_logistic_layer.get_logits_with_multiple_devices(inverse_readout, ps_device,
+                                                                                          devices)
             with tf.device(devices[0]):
                 inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
                 reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src, src_mask_3d)
@@ -434,7 +442,6 @@ class EncoderDecoder(object):
 
         return cost
 
-
     def build_trainer(self, src, src_mask, trg, trg_mask, ite,
                       l1_reg_weight=1e-6,
                       l2_reg_weight=1e-6,
@@ -447,7 +454,7 @@ class EncoderDecoder(object):
         # init_context = annotations[0, :, -self.n_hids_src:]
         # modification #1
         # mean pooling
-        init_context = K.sum (annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+        init_context = K.sum(annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
 
         trg_emb = self.table_trg.apply(trg)
         # shift_right assumes a 3D tensor, and time steps is dimension one
@@ -455,20 +462,20 @@ class EncoderDecoder(object):
                                                [1, 0, 2])
 
         hiddens, readout, _ = self.decoder.run_pipeline(state_below=trg_emb_shifted,
-                                            mask_below=trg_mask_3d,
-                                            init_context=init_context,
-                                            c=annotations,
-                                            c_mask=src_mask_3d)
+                                                        mask_below=trg_mask_3d,
+                                                        init_context=init_context,
+                                                        c=annotations,
+                                                        c_mask=src_mask_3d)
         # apply dropout
         if self.dropout > 0.:
             logger.info('Apply dropout with p = {}'.format(self.dropout))
             readout = Dropout(readout, self.dropout)
 
         self.cost = calc_loss_from_readout(readout=readout,
-                               targets=trg,
-                               targets_mask=trg_mask_3d,
-                               logisticRegressionLayer=self.logistic_layer,
-                               softmax_output_num_sampled=softmax_output_num_sampled)
+                                           targets=trg,
+                                           targets_mask=trg_mask_3d,
+                                           logisticRegressionLayer=self.logistic_layer,
+                                           softmax_output_num_sampled=softmax_output_num_sampled)
         # for reconstruction
         if self.with_reconstruction:
             # now hiddens is the annotations
@@ -476,21 +483,21 @@ class EncoderDecoder(object):
 
             src_emb = self.table_src.apply(src)
             src_emb_shifted = K.permute_dimensions(K.shift_right(K.permute_dimensions(src_emb, [1, 0, 2])),
-                                               [1, 0, 2])
+                                                   [1, 0, 2])
 
             _, inverse_readout, _ = self.inverse_decoder.run_pipeline(state_below=src_emb_shifted,
-                                                mask_below=src_mask_3d,
-                                                init_context=inverse_init_context,
-                                                c=hiddens,
-                                                c_mask=trg_mask_3d)
+                                                                      mask_below=src_mask_3d,
+                                                                      init_context=inverse_init_context,
+                                                                      c=hiddens,
+                                                                      c_mask=trg_mask_3d)
 
             if self.dropout > 0.:
                 inverse_readout = Dropout(inverse_readout, self.dropout)
 
             inverse_logits = self.inverse_logistic_layer.get_logits(inverse_readout)
             inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
-            self.reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src, src_mask_3d)
-
+            self.reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src,
+                                                                                   src_mask_3d)
 
             self.cost += self.reconstruction_cost * self.reconstruction_weight
 
@@ -516,19 +523,20 @@ class EncoderDecoder(object):
 
         self.train_fn = K.function(inps, [train_cost], updates=updates)
 
-
     def build_sampler(self):
 
         # time steps, nb_samples
         x = K.placeholder((None, None), dtype='int32')
 
-        c = self.encoder.apply(x, None)    # None,None,None
+        c = self.encoder.apply(x, None)  # None,None,None
 
-        init_context = K.mean(c, axis=0)    # None,None
+        init_context = K.mean(c, axis=0)  # None,None
 
         init_state = self.decoder.create_init_state(init_context)
 
         outs = [init_state, c]
+
+
         if not self.with_attention:
             outs.append(init_context)
 
@@ -643,11 +651,11 @@ class EncoderDecoder(object):
 
             # apply one step
             inverse_results = self.inverse_decoder.apply(state_below=src_emb,
-                                         init_state=inverse_cur_state,
-                                         init_context=None if self.with_attention else inverse_init_context,
-                                         c=inverse_c if self.with_attention else None,
-                                         c_mask=trg_mask_3d,
-                                         one_step=True)
+                                                         init_state=inverse_cur_state,
+                                                         init_context=None if self.with_attention else inverse_init_context,
+                                                         c=inverse_c if self.with_attention else None,
+                                                         c_mask=trg_mask_3d,
+                                                         one_step=True)
 
             inverse_next_state = inverse_results[0]
             if self.with_attention:
@@ -727,8 +735,8 @@ class EncoderDecoder(object):
                     logger.info('Adding new param {} with shape {}'.format(param_name, K.get_value(param).shape))
                     continue
                 if K.get_value(param).shape != val[param_name].shape:
-                    logger.info("Error: model param != load param shape {} != {}".format(\
-                                        K.get_value(param).shape, val[param_name].shape))
+                    logger.info("Error: model param != load param shape {} != {}".format( \
+                        K.get_value(param).shape, val[param_name].shape))
                     raise Exception("loading params shape mismatch")
                 else:
                     K.set_value(param, val[param_name])

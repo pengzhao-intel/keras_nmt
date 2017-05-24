@@ -2,6 +2,7 @@ table = 'a,-20319;ai,-20317;an,-20304;ang,-20295;ao,-20292;ba,-20283;bai,-20265;
 
 pinyin_table = [v.split(',') for v in table.split(';')]
 
+
 def Pinyin(num):
     if num > 0 & num < 160:
         return chr(num)
@@ -13,14 +14,15 @@ def Pinyin(num):
             break
     return False
 
+
 def get_pinyin(chinese):
     pinyin = []
 
     # chinese = word.decode('utf-8').encode('gb18030')
     i = 0
-    while(i < len(chinese) - 1):
+    while i < len(chinese) - 1:
         p = ord(chinese[i:i + 1])
-        if(p > 160):
+        if (p > 160):
             i += 1
             q = ord(chinese[i:i + 1])
             p = p * 256 + q - 65536
@@ -31,5 +33,3 @@ def get_pinyin(chinese):
         i += 1
 
     return ''.join(pinyin)
-
-

@@ -4,7 +4,6 @@ import copy
 
 
 class BeamSearch(object):
-
     def __init__(self, enc_dec, configuration, beam_size=1, maxlen=50, stochastic=True):
         # with_attention=True, with_coverage=False, coverage_dim=1, coverage_type='linguistic', max_fertility=2, with_reconstruction=False, reconstruction_weight, with_reconstruction_error_on_states=False,):
 
@@ -26,10 +25,8 @@ class BeamSearch(object):
         self.with_reconstruction = configuration['with_reconstruction']
         self.reconstruction_weight = configuration['reconstruction_weight']
 
-
         if self.beam_size > 1:
             assert not self.stochastic, 'Beam search does not support stochastic sampling'
-
 
     def apply(self, input):
         # shape of input: time_steps , 1
@@ -113,7 +110,8 @@ class BeamSearch(object):
                 if self.with_attention:
                     new_hyp_alignments = []
                     if self.with_coverage:
-                        new_hyp_coverages = numpy.zeros((c.shape[0], self.beam_size - dead_k, self.coverage_dim), dtype='float32')
+                        new_hyp_coverages = numpy.zeros((c.shape[0], self.beam_size - dead_k, self.coverage_dim),
+                                                        dtype='float32')
 
                 for idx, [ti, wi] in enumerate(zip(trans_indices, word_indices)):
                     new_hyp_samples.append(hyp_samples[ti] + [wi])
@@ -199,7 +197,7 @@ class BeamSearch(object):
 
             inverse_sample_score = numpy.zeros(sample_num).astype('float32')
             if self.with_attention:
-                inverse_sample_alignment = [[] for i in  xrange(sample_num)]
+                inverse_sample_alignment = [[] for i in xrange(sample_num)]
 
             my = max([len(s) for s in sample_states])
             inverse_c = numpy.zeros((my, sample_num, sample_states[0][0].shape[0]), dtype='float32')
@@ -216,12 +214,12 @@ class BeamSearch(object):
             if not self.with_attention:
                 inverse_init_ctx0 = inverse_ret[1]
 
-
-            to_reconstruct_input = input[:, 0]    # time_steps, 1D array
+            to_reconstruct_input = input[:, 0]  # time_steps, 1D array
 
             for i in range(len(to_reconstruct_input)):
                 # whether input contains eos?
-                inverse_next_w = numpy.array([to_reconstruct_input[i - 1]] * sample_num) if i > 0 else -1 * numpy.ones((sample_num,)).astype('int32')
+                inverse_next_w = numpy.array([to_reconstruct_input[i - 1]] * sample_num) if i > 0 else -1 * numpy.ones(
+                    (sample_num,)).astype('int32')
 
                 inps = [inverse_next_w, mask, inverse_next_state]
                 if self.with_attention:
@@ -261,7 +259,8 @@ class BeamSearch(object):
 
 # for forced alignment
 class Align(object):
-    def __init__(self, enc_dec, with_attention=True, with_coverage=False, coverage_dim=1, coverage_type='linguistic', max_fertility=2, with_reconstruction=False):
+    def __init__(self, enc_dec, with_attention=True, with_coverage=False, coverage_dim=1, coverage_type='linguistic',
+                 max_fertility=2, with_reconstruction=False):
         self.enc_dec = enc_dec
 
         assert with_attention, "Align only supports attention model"

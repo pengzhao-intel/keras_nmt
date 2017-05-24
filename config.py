@@ -9,8 +9,8 @@ dict(
     trg_vocab_size=30002,
 
     # Vocabularies
-    vocab_src='./data/vocab.src.pkl',
-    vocab_trg='./data/vocab.trg.pkl',
+    vocab_src='./data/vocab_src.pkl',
+    vocab_trg='./data/vocab_trg.pkl',
     # Datasets
     train_src='./data/train_src.shuffle',
     train_trg='./data/train_trg.shuffle',

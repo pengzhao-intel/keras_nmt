@@ -1,0 +1,160 @@
+# 1. add rule /--+/ for "--" 
+# 2. add "re-" in prefix list.
+# 3. delete it. not. do. around. off. end. in BrevWords.txt
+# 4. change the way to handle "m/s, kg/m3"
+# 5. change the way to handle (a) [b] [3c]
+# 6. put the punctuation before the bracket and comma rules
+# 7. change the rule for English Name. Add stop word like "I, You, That, These..."
+# 8. change lot 2009.03.20
+
+#next 2 for: if exist, delete the beginning and ending mark of a sentence first
+/<\/?s>/
+s/<\/?s>//
+
+#next 1 for: Email address.(plus mailto:sbd@sp.com)
+/\b(?:(mailto:)|(?<!:|\/))[A-Za-z0-9._%+-]+(?:@|\(at\))[A-Za-z0-9.-]+\.[A-Za-z]{2,4}\b/i
+s/\b(?:(mailto:)|(?<!:|\/))[A-Za-z0-9._%+-]+(?:@|\(at\))[A-Za-z0-9.-]+\.[A-Za-z]{2,4}\b/$&/i
+
+#next 1 for: complete url ( no space allowed )
+/(?<![@.)])\b(?:(?:file|gopher|news|nntp|telnet|wais|https?|ftps?|sftp):\/\/)?(?:[\w\-_]+:[\w\-_]*@)?(?:(\d{1,3}\.){3}\d{1,3}|[\w\-_]+(?:\.[\w\-_]+)*\.(?:aero|biz|cat|com|coop|edu|gov|info|int|jobs|mil|mobi|museum|name|net|org|pro|travel|asia|tel|post|xxx|[A-Za-z][A-Za-z])(?![A-Za-z0-9]))(?:[-A-Za-z0-9+&@#\$\/%?=~_|!:,.;^]*[-A-Za-z0-9+&@#\$\/%=~_|])?/i
+s/(?<![@.)])\b(?:(?:file|gopher|news|nntp|telnet|wais|https?|ftps?|sftp):\/\/)?(?:[\w\-_]+:[\w\-_]*@)?(?:(\d{1,3}\.){3}\d{1,3}|[\w\-_]+(?:\.[\w\-_]+)*\.(?:aero|biz|cat|com|coop|edu|gov|info|int|jobs|mil|mobi|museum|name|net|org|pro|travel|asia|tel|post|xxx|[A-Za-z][A-Za-z])(?![A-Za-z0-9]))(?:[-A-Za-z0-9+&@#\$\/%?=~_|!:,.;^]*[-A-Za-z0-9+&@#\$\/%=~_|])?/$&/i
+
+# for &amp
+/&amp/
+s/&amp/ /
+
+# for 1970's-80's
+/\b(\d{2,4})('s)(-|~)(\d{2,4})('s)\b/
+s/\b(\d{2,4})('s)(-|~)(\d{2,4})('s)\b/ $1 $2 $3 $4 $5 /i
+
+#常用前缀表
+/\b(?:Afro|Anglo|Neo|anti|arch|co|de|electro|ex|maxi|medium|meta|midi|mini|multi|non|pan|post|pre|pro|quasi|re|self|sub|super|vice|week|world)-[A-Za-z]+\b(?!-)/i
+s/\b(?:Afro|Anglo|Neo|anti|arch|co|de|electro|ex|maxi|medium|meta|midi|mini|multi|non|pan|post|pre|pro|quasi|re|self|sub|super|vice|week|world)-[A-Za-z]+\b(?!-)/$&/i
+
+
+#类似 m/s kg/m3分数形式的单位
+/\b(t|ton|kg|mg|g|lb|oz|gal|bbl|km|mm|cm|m|mile|ft|in|yd|MPa|Pa|psi|bar|atm|ha|acre|pt|qt|MMcf|tcf|bcf|mcf|l|bf|kgf|dyn|K|F|C|W|J|cal|kcal|h|hr|s|min)\/(t|ton|kg|mg|g|lb|oz|gal|bbl|km|mm|cm|m|mile|ft|in|yd|MPa|Pa|psi|bar|atm|ha|acre|pt|qt|MMcf|tcf|bcf|mcf|l|bf|kgf|dyn|K|F|C|W|J|cal|kcal|h|hr|s|min)\b/
+s/\b(t|ton|kg|mg|g|lb|oz|gal|bbl|km|mm|cm|m|mile|ft|in|yd|MPa|Pa|psi|bar|atm|ha|acre|pt|qt|MMcf|tcf|bcf|mcf|l|bf|kgf|dyn|K|F|C|W|J|cal|kcal|h|hr|s|min)\/(t|ton|kg|mg|g|lb|oz|gal|bbl|km|mm|cm|m|mile|ft|in|yd|MPa|Pa|psi|bar|atm|ha|acre|pt|qt|MMcf|tcf|bcf|mcf|l|bf|kgf|dyn|K|F|C|W|J|cal|kcal|h|hr|s|min)\b/$&/i
+
+#next 4 for: abbr. for copula
+/(CAN|WON)(?: )?(?:'|`)(?: )?T/
+s/(CAN|WON)(?: )?(?:'|`)(?: )?T/$1 N'T /
+/((?:W|w)on|(?:C|c)an)(?: )?(?:'|`)(?: )?t/i
+s/((?:W|w)on|(?:C|c)an)(?: )?(?:'|`)(?: )?t/$1 n't /i
+/(n|d)(?: )?(?:'|`)(?: )?(t)\b/i
+s/(n|d)(?: )?(?:'|`)(?: )?(t)\b/ $1'$2 /i
+
+# be careful: there is no 'i' at the end of the RE.
+#/(?<= |\w)('|`)(?: )?(d|m|re|s|ll|ve)\b/
+#s/(?<= |\w)('|`)(?: )?(d|m|re|s|ll|ve)\b/AAA aaa AAA/
+
+/(?<![^a-zA-Z0-9_.'")\] ])('|`)(?: )?(d|m|re|s|ll|ve)\b/
+s/(?<![^a-zA-Z0-9_.'")\] ])('|`)(?: )?(d|m|re|s|ll|ve)\b/ $1$2 /
+
+#next 3 for: common abbr.
+/\b(mr|Mr|MR|mrs|Mrs|MRS|Dr|DR)(?: )?\./
+s/\b(mr|Mr|MR|mrs|Mrs|MRS|Dr|DR)(?: )?\./ $1. /
+/\b(Ph|PH)(?: )?\.(?: )?D/i
+s/\b(Ph|PH)(?: )?\.(?: )?D/ $1.D /i
+/\b(etc|ETC)(?: )?\./i
+s/\b(etc|ETC)(?: )?\./ $1. /i
+/\b(i\.e|e\.g)(?: )?\.?/i
+s/\b(i\.e|e\.g)(?: )?\.?/ $1. /i
+
+#ABBR_TABLE
+
+#next 1 for: date
+/(?:\d{4}[.\/-]\d{2}[.\/-]\d{2}|\d{2}[.\/-]\d{2}[.\/-]\d{4}|\d{2}[.\/-]\d{2}[.\/-]\d{2})/
+s/(?:\d{4}[.\/-]\d{2}[.\/-]\d{2}|\d{2}[.\/-]\d{2}[.\/-]\d{4}|\d{2}[.\/-]\d{2}[.\/-]\d{2})/$&/
+
+#sequence index like: 1. 2. 30.
+/^\d+\.(?= |$|\n)/
+s/^\d+\.(?= |$|\n)/ $& /
+
+#sequence index like: (1) [2] {3}
+/(?:\([0-9]{1,3}\)|\[[0-9]{1,3}\]|{[0-9]{1,3}})/
+s/(?:\([0-9]{1,3}\)|\[[0-9]{1,3}\]|{[0-9]{1,3}})/ $& /
+
+#deal with the sentence with a number as its last word: I was born at 1985.
+/(?<![^0-9])([.?!])[ \t]*(?=$|\n)/
+s/(?<![^0-9])([.?!])[ \t]*(?=$|\n)/ $1 /
+
+#deal with sub sentence with a period immdiate after a number : I was born at 1985, blablabla.
+/(?<![^0-9])([,.;!?])(?![^ \t])/
+s/(?<![^0-9])([,.;!?])(?![^ \t])/ $1 /
+
+#右括号和引号之前的带句号或逗号的数字
+/(?<![^0-9])([,.;!?])(?![^)\]}'"])/
+s/(?<![^0-9])([,.;!?])(?![^)\]}'"])/ $1 /
+
+#for "sb--like"
+/--+/
+s/--+/ $& /
+
+
+#for break : 10-Galen; 24-year-old; OTC-14; $10.6-millon
+/(?<![^0-9])(-)(?![^a-zA-Z])/
+s/(?<![^0-9])(-)(?![^a-zA-Z])/ $1 /
+/(?<![^a-zA-Z])(-)(?![^0-9])/
+s/(?<![^a-zA-Z])(-)(?![^0-9])/ $1 /
+
+#/\b(?<![^0-9])-(?![^a-zA-Z])\b/
+#s/\b(?<![^0-9])-(?![^a-zA-Z])\b/ $&  /i
+#/\b([a-zA-Z]+)-(?=\d)\b/
+#s/\b([a-zA-Z]+)-(?=\d)\b/ $1 /i
+
+#for: 1994: 2008:
+/\b(\d{4}): /
+s/\b(\d{4}): /$1 : /
+
+
+#这一条影响了 ?! ... ...... !!! 等等， 让其不能起到换行作用
+#series digit and punctuation(no "'`[]{}(),no @)
+/(?:[0-9~!#\$%^&*+=:;.,<>?|\\\/-]+[~!#\$%^&*+=:;.,<>?|\\\/-][0-9~!#\$%^&*+=:;.,<>?|\\\/-]+)|(?:[~!#\$%^&*+=:;.,<>?|\\\/-][0-9~!#\$%^&*+=:;.,<>?|\\\/-]+)|(?:[0-9~!#\$%^&*+=:;.,<>?|\\\/-]+[~!#\$%^&*+=:;.,<>?|\\\/-])/
+s/(?:[0-9~!#\$%^&*+=:;.,<>?|\\\/-]+[~!#\$%^&*+=:;.,<>?|\\\/-][0-9~!#\$%^&*+=:;.,<>?|\\\/-]+)|(?:[~!#\$%^&*+=:;.,<>?|\\\/-][0-9~!#\$%^&*+=:;.,<>?|\\\/-]+)|(?:[0-9~!#\$%^&*+=:;.,<>?|\\\/-]+[~!#\$%^&*+=:;.,<>?|\\\/-])/ $& /
+
+
+#/(?:[~!#\$%^&*+=:;.,<>?|\\\/-][0-9~!#\$%^&*+=:;.,<>?|\\\/-]+)/
+#s/(?:[~!#\$%^&*+=:;.,<>?|\\\/-][0-9~!#\$%^&*+=:;.,<>?|\\\/-]+)/ $& /
+#/(?:[0-9~!#\$%^&*+=:;.,<>?|\\\/-]+[~!#\$%^&*+=:;.,<>?|\\\/-])/
+#s/(?:[0-9~!#\$%^&*+=:;.,<>?|\\\/-]+[~!#\$%^&*+=:;.,<>?|\\\/-])/ $& /
+#/(?:[0-9~!#\$%^&*+=:;.,<>?|\\\/-]+[~!#\$%^&*+=:;.,<>?|\\\/-][0-9~!#\$%^&*+=:;.,<>?|\\\/-]+)/ $& /
+#s/(?:[0-9~!#\$%^&*+=:;.,<>?|\\\/-]+[~!#\$%^&*+=:;.,<>?|\\\/-][0-9~!#\$%^&*+=:;.,<>?|\\\/-]+)/ $& /
+
+
+#被前面一条冲突，和前面一条调换顺序也没有用，不过现在这样应该不影响结果
+#“-”前后如果有数字或者是大写字母，不切开 like: A-1, A-31, 3-B, 50-F, 1-1, 1-2.
+#/\b([A-Z]|[0-9])+[~-]([A-Z]|[0-9])+\b/
+#s/\b([A-Z]|[0-9])+[~-]([A-Z]|[0-9])+\b/$&/
+
+
+#next 1 for: Name.
+#/\b(?:[A-Z][a-z]*\. )+(?!(?:I|We|You|It|He|She|They|The|That|This|These|Those|Some)\b)[A-Z][a-z]*\b/
+#s/\b(?:[A-Z][a-z]*\. )+(?!(?:I|We|You|It|He|She|They|The|That|This|These|Those|Some)\b)[A-Z][a-z]*\b/$&/
+
+#next 1 for: handle single punctuation (no commas and no '_')
+/[,;<>[\]{}()\/:\\|~@#%\$\^&*+=-]/
+s/[,;<>[\]{}()\/:\\|~@#%\$\^&*+=-]/ $& /
+
+#handle escaped bracket
+#/[[\]{}()]/
+#s/[[\]{}()]/ $& /
+
+#next 2 for: handle single commas;
+#/(?<!')'(?!')|(?<!`)`(?!`)/
+#s/(?<!')'(?!')|(?<!`)`(?!`)/ $& /
+
+#/(?<!`)`(?!`)/
+#s/(?<!`)`(?!`)/ $& /
+
+#next 2 for: handle escaped commas;
+/(?<!`)``|''(?!')/
+s/(?<!`)``|''(?!')/ $& /
+
+/[`"']/
+s/[`"']/ $& /
+
+#next 1 for: break line at the end of sentence
+/[.?!]+/
+s/[.?!]+/ $& /
+

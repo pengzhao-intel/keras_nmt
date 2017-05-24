@@ -44,7 +44,7 @@ def get_config_search_coverage():
 
     # Where to save model
     config['saveto'] = './model.npz'
-    config['saveto_best'] = './model_best.npz'
+    config['saveto_best'] = './model.npz'
 
     # Dropout ratio, applied only after readout maxout
     config['dropout'] = 0.5
@@ -53,8 +53,8 @@ def get_config_search_coverage():
     config['maxout_part'] = 1
 
     # vocabulary size, include '</S>'
-    config['src_vocab_size'] = 30002
-    config['trg_vocab_size'] = 30002
+    config['src_vocab_size'] = 30001
+    config['trg_vocab_size'] = 30001
 
     # Special tokens and indexes
     config['unk_id'] = 1

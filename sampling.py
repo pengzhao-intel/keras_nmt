@@ -9,6 +9,8 @@ import pprint
 import cPickle as pkl
 import subprocess
 import logging
+logger = logging.getLogger(__name__)
+
 import time
 import re
 import configurations
@@ -16,9 +18,6 @@ from search import BeamSearch
 from nmt import EncoderDecoder
 from data_stream import get_devtest_stream
 from pinyin import get_pinyin
-
-logger = logging.getLogger(__name__)
-
 
 class Sampler(object):
 
@@ -317,7 +316,8 @@ class BleuValidator(object):
 
 
 if __name__ == '__main__':
-    # Get the arguments
+    logger = logging.getLogger(__name__)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--proto",
                         default="get_config_search_coverage",
