@@ -1,6 +1,5 @@
 # configurations for rnnsearch with coverage
 def get_config_search_coverage():
-
     config = {}
 
     config['with_attention'] = True
@@ -66,7 +65,7 @@ def get_config_search_coverage():
     # Root directory for dataset
     datadir = './data/'
 
-    config['replace_unk'] = False
+    config['replace_unk'] = True
     config['unk_dict'] = datadir + 'unk_dict'
 
     # Vocabularies
@@ -128,4 +127,3 @@ def get_config_search_coverage():
     config['softmax_output_num_sampled'] = 512
 
     return config
-
