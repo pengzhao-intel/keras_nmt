@@ -9,8 +9,8 @@ dict(
     trg_vocab_size=30002,
 
     # Vocabularies
-    vocab_src='./data/vocab_src.pkl',
-    vocab_trg='./data/vocab_trg.pkl',
+    # vocab_src='./data/vocab_src.pkl',
+    # vocab_trg='./data/vocab_trg.pkl',
     # Datasets
     train_src='./data/train_src.shuffle',
     train_trg='./data/train_trg.shuffle',
@@ -19,6 +19,8 @@ dict(
     valid_out='./data/valid_out',
 
     sample_freq=1,
+    
+    replace_unk=False,
 
     # Maxmum number of epoch
     finish_after=20,
