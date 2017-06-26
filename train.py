@@ -147,6 +147,8 @@ def main(configuration, ps_device=None, devices=None):
     if configuration['reload']:
         enc_dec.load()
 
+    '''
+    # comment for fast training
     sample_search = BeamSearch(enc_dec=enc_dec,
                                configuration=configuration,
                                beam_size=1,
@@ -158,6 +160,7 @@ def main(configuration, ps_device=None, devices=None):
 
     sampler = Sampler(sample_search, **configuration)
     bleuvalidator = BleuValidator(valid_search, **configuration)
+    '''
 
     # train function
     train_fn = enc_dec.train_fn
@@ -166,8 +169,11 @@ def main(configuration, ps_device=None, devices=None):
     ds = DStream(**configuration)
 
     # valid data
+    '''
+    # comment for fast training
     vs = get_devtest_stream(data_type='valid', input_file=None, **configuration)
-
+    '''
+    
     iters = args.start
     valid_bleu_best = -1
     epoch_best = -1
@@ -208,6 +214,8 @@ def main(configuration, ps_device=None, devices=None):
                     logger.info('epoch %d \t updates %d device %s train cost %.4f'
                         % (epoch, iters, device, tc[i + 1]))
 
+            '''
+            # Commented for fast training
             if iters % configuration['save_freq'] == 0:
                 enc_dec.save()
 
@@ -229,6 +237,7 @@ def main(configuration, ps_device=None, devices=None):
                     epoch_best = epoch
                     iters_best = iters
                     enc_dec.save(path=configuration['saveto_best'])
+            '''
 
     logger.info('final result: epoch %d \t updates %d valid_bleu_best %.4f'
             % (epoch_best, iters_best, valid_bleu_best))
