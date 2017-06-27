@@ -3,7 +3,7 @@ dict(
     seq_len_src=10,
     seq_len_trg=10,
     # Batch size of train data
-    batch_size=2,
+    batch_size=80,
     # vocabulary size, include '</S>'
     src_vocab_size=30002,
     trg_vocab_size=30002,
