@@ -1,0 +1,9 @@
+*.pyc
+*.log
+*.png
+*.out
+*.o
+*.pyo
+*.so
+*.bak
+*.pkl
