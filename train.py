@@ -206,8 +206,12 @@ def main(configuration, ps_device=None, devices=None):
 
             cur_time = time.time()
             iters += 1
-            logger.info('epoch %d \t updates %d train cost %.4f use time %.4f'
-                        % (epoch, iters, tc[0], cur_time - last_time))
+
+            num_of_words = np.prod(x.shape)
+            duration = cur_time - last_time
+            words_per_sec = int(num_of_words / duration)
+            logger.info('epoch %d \t updates %d train cost %.4f use time %.4f sec, %d words/sec'
+                        % (epoch, iters, tc[0], duration, words_per_sec))
 
             if devices and not prefer_to_model_parallel:    # when do model parallel, only return the total cost
                 for i, device in enumerate(devices):
