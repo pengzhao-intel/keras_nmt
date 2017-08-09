@@ -18,16 +18,16 @@ dict(
     valid_trg='./data/valid_trg',
     valid_out='./data/valid_out',
 
-    sample_freq=1,
+    sample_freq=100,
     
     replace_unk=False,
 
     # Maxmum number of epoch
-    finish_after=20,
+    finish_after=1,
     # Save model after this many updates
     save_freq=5000,
     # Valid frequence
-    valid_freq=2,
+    valid_freq=100,
     valid_freq_fine=5000,
     # Start bleu validation after this many updates
     val_burn_in=1,

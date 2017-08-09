@@ -13,7 +13,8 @@ import re
 import os
 import numpy as np
 from picklable_itertools import izip
-
+import logging
+logger = logging.getLogger(__name__)
 try:
     import cPickle as pickle
 except:
@@ -40,15 +41,16 @@ def _build_vocabulary(files, encoding,
                 if preprocess is not None:
                     line = preprocess(line)
                 words = line.split()
-                # replace number with NUM
+                # make sure input index in the range of vocab
+                if len(stat) == max_nb_of_vacabulary - 3:
+                    break
                 for word in words:
                     if word in stat:
                         stat[word] += 1
                     else:
                         stat[word] = 1
     sorted_items = sorted(stat.items(), key=lambda d: d[1], reverse=True)
-    if max_nb_of_vacabulary is not None:
-        sorted_items = sorted_items[:max_nb_of_vacabulary]
+    logger.info("%s read %d vocab" %(files, len(sorted_items)))
     vocab = {}
     vocab[eos] = eos_id
     vocab[unk] = unk_id
@@ -59,6 +61,7 @@ def _build_vocabulary(files, encoding,
             token_id += 1
         vocab[token] = token_id
         token_id += 1
+    logger.info("%s tokenize %d vocab" %(files, len(vocab)))
     return vocab
 
 
@@ -434,6 +437,10 @@ def build_vocabulary_if_needed(files,
     # build vocabulary
     if os.path.isfile(voc_filepath):
         vocab = _load_vocabulary(voc_filepath)
+        logger.info("load vocab from %s" % (voc_filepath))
+        if max(vocab.values()) > max_nb_of_vacabulary - 2:
+            raise ValueError("current input max index %d not less than vocab \
+                    size  %d" % (max(vocab.values()), max_nb_of_vacabulary))
     else:
         vocab = _build_vocabulary(files,
                                   encoding=encoding,
