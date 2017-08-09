@@ -40,15 +40,15 @@ def _build_vocabulary(files, encoding,
                 if preprocess is not None:
                     line = preprocess(line)
                 words = line.split()
-                # replace number with NUM
+                # make sure input index in the range of vocab
+                if len(stat) == max_nb_of_vacabulary - 3:
+                    break
                 for word in words:
                     if word in stat:
                         stat[word] += 1
                     else:
                         stat[word] = 1
     sorted_items = sorted(stat.items(), key=lambda d: d[1], reverse=True)
-    if max_nb_of_vacabulary is not None:
-        sorted_items = sorted_items[:max_nb_of_vacabulary]
     vocab = {}
     vocab[eos] = eos_id
     vocab[unk] = unk_id
