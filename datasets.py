@@ -41,9 +41,6 @@ def _build_vocabulary(files, encoding,
                 if preprocess is not None:
                     line = preprocess(line)
                 words = line.split()
-                # make sure input index in the range of vocab
-                if len(stat) == max_nb_of_vacabulary - 3:
-                    break
                 for word in words:
                     if word in stat:
                         stat[word] += 1
@@ -51,6 +48,8 @@ def _build_vocabulary(files, encoding,
                         stat[word] = 1
     sorted_items = sorted(stat.items(), key=lambda d: d[1], reverse=True)
     logger.info("%s read %d vocab" %(files, len(sorted_items)))
+    if max_nb_of_vacabulary is not None:
+        sorted_items = sorted_items[:max_nb_of_vacabulary-2]
     vocab = {}
     vocab[eos] = eos_id
     vocab[unk] = unk_id
@@ -438,7 +437,7 @@ def build_vocabulary_if_needed(files,
     if os.path.isfile(voc_filepath):
         vocab = _load_vocabulary(voc_filepath)
         logger.info("load vocab from %s" % (voc_filepath))
-        if max(vocab.values()) > max_nb_of_vacabulary - 2:
+        if max(vocab.values()) > max_nb_of_vacabulary - 1:
             raise ValueError("current input max index %d not less than vocab \
                     size  %d" % (max(vocab.values()), max_nb_of_vacabulary))
     else:
