@@ -282,4 +282,3 @@ if __name__ == '__main__':
             main(configuration, ps_device, wk_devices)
     else:
         main(configuration)
-
