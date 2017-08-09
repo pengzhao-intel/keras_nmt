@@ -18,7 +18,7 @@ dict(
     valid_trg='./data/valid_trg',
     valid_out='./data/valid_out',
 
-    sample_freq=100,
+    sample_freq=400,
     
     replace_unk=False,
 
@@ -27,7 +27,7 @@ dict(
     # Save model after this many updates
     save_freq=5000,
     # Valid frequence
-    valid_freq=100,
+    valid_freq=400,
     valid_freq_fine=5000,
     # Start bleu validation after this many updates
     val_burn_in=1,
