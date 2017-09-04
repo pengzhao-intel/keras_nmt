@@ -135,7 +135,7 @@ def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None)
         ce = tf.nn.sparse_softmax_cross_entropy_with_logits(logits_flat, K.cast(targets_flat, 'int64'))
     else:
         # Theano will internally call one hot version if the two dims do not match
-        ce = K.categorical_crossentropy(logits_flat, targets_flat, from_logits=True)
+        ce = K.categorical_crossentropy(output = logits_flat, target = targets_flat, from_logits=True)
     if mask is not None:
         mask_flat = K.flatten(mask)
         ce *= mask_flat
@@ -449,8 +449,8 @@ class EncoderDecoder(object):
 
         src_mask_3d = K.expand_dims(src_mask)
         trg_mask_3d = K.expand_dims(trg_mask)
-
         annotations = self.encoder.apply(src, src_mask_3d)
+        
         # init_context = annotations[0, :, -self.n_hids_src:]
         # modification #1
         # mean pooling
@@ -477,29 +477,6 @@ class EncoderDecoder(object):
                                            logisticRegressionLayer=self.logistic_layer,
                                            softmax_output_num_sampled=softmax_output_num_sampled)
         # for reconstruction
-        if self.with_reconstruction:
-            # now hiddens is the annotations
-            inverse_init_context = K.sum(hiddens * trg_mask_3d, axis=0) / K.sum(trg_mask_3d, axis=0)
-
-            src_emb = self.table_src.apply(src)
-            src_emb_shifted = K.permute_dimensions(K.shift_right(K.permute_dimensions(src_emb, [1, 0, 2])),
-                                                   [1, 0, 2])
-
-            _, inverse_readout, _ = self.inverse_decoder.run_pipeline(state_below=src_emb_shifted,
-                                                                      mask_below=src_mask_3d,
-                                                                      init_context=inverse_init_context,
-                                                                      c=hiddens,
-                                                                      c_mask=trg_mask_3d)
-
-            if self.dropout > 0.:
-                inverse_readout = Dropout(inverse_readout, self.dropout)
-
-            inverse_logits = self.inverse_logistic_layer.get_logits(inverse_readout)
-            inverse_logits_flat = K.reshape(inverse_logits, shape=(-1, self.inverse_logistic_layer.n_out))
-            self.reconstruction_cost = get_category_cross_entropy_from_flat_logits(inverse_logits_flat, src,
-                                                                                   src_mask_3d)
-
-            self.cost += self.reconstruction_cost * self.reconstruction_weight
 
         self.L1 = sum([K.sum(K.abs(param)) for param in self.params])
         self.L2 = sum([K.sum(K.square(param)) for param in self.params])
@@ -521,7 +498,7 @@ class EncoderDecoder(object):
         # train function
         inps = [src, src_mask, trg, trg_mask]
 
-        self.train_fn = K.function(inps, [train_cost], updates=updates)
+        self.train_fn = K.function(inps, [train_cost], updates=updates, name='train_func')
 
     def build_sampler(self):
 
