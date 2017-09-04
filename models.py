@@ -6,9 +6,67 @@ from utils import ReplicateLayer, _p
 import keras.backend as K
 
 import backend
-
+import mkl_gru
 
 K.scan = backend.scan
+
+class MKL_GRU(object):
+
+    def __init__(self, n_in, n_hids, name='GRU', with_context=False):
+
+        self.n_in = n_in
+        self.n_hids = n_hids
+        self.pname = name
+
+        self.with_context = with_context
+        if self.with_context:
+            self.c_hids = n_hids
+
+        self._init_params()
+
+
+    def _init_params(self):
+
+        shape_xh = (self.n_in*3, self.n_hids)
+        shape_hh = (self.n_hids*3, self.n_hids)
+        self.W_x = norm_weight(shape=shape_xh, name=_p(self.pname, 'W_x'))
+        self.b = constant_weight(shape=(self.n_hids*3,), name=_p(self.pname, 'b'))
+        self.W_h = ortho_weight(shape=shape_hh, name=_p(self.pname, 'W_h'))
+        self.params = [self.W_x, self.W_h, self.b]
+        self.GRU_op = mkl_gru.GRU(hid=self.n_hids, return_sequences=True)
+        self.h_init_state = numpy.zeros((80, 1000), numpy.float64)
+
+    def apply(self, state_below, mask_below=None, init_state=None, context=None):
+
+        if K.ndim(state_below) == 2:
+            state_below = K.expand_dims(state_below, 1)
+
+        if mask_below is None:
+            mask_below = K.ones_like(K.sum(state_below, axis=2, keepdims=True))
+
+        if K.ndim(mask_below) == 2:
+            mask_below = K.expand_dims(mask_below)
+
+        #if init_state is None:
+            # nb_samples,n_hids
+        init_state = K.repeat_elements(K.expand_dims(K.zeros_like(K.sum(state_below, axis=[0, 2]))), self.n_hids, axis=1)
+        '''
+        state_below_xh = K. dot(state_below, self.W_xh)
+        state_below_xz = K. dot(state_below, self.W_xz)
+        state_below_xr = K.dot(state_below, self.W_xr)
+        sequences = [state_below_xh, state_below_xz, state_below_xr, mask_below]
+        fn = lambda x_h, x_z, x_r, x_m, h_tm1: self._step(x_h, x_z, x_r, x_m, h_tm1)
+        rval = K.scan(fn, sequences=sequences, outputs_initials=init_state, name=_p(self.pname, 'layers'))
+        self.output = rval
+        '''
+        #print('1,', K.ndim(init_state))
+        #print(init_state.shape)
+        #exit()
+        self.output = self.GRU_op(state_below, self.W_x, self.W_h, init_state, self.b)[0]
+        #print('2,', K.ndim(self.output))
+        return self.output
+
+
 
 class BidirectionalEncoder(object):
 
@@ -24,10 +82,10 @@ class BidirectionalEncoder(object):
         self.params = []
         self.layers = []
 
-        self.forward = GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
+        self.forward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
         self.layers.append(self.forward)
 
-        self.backward = GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
+        self.backward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
         self.layers.append(self.backward)
 
         for layer in self.layers:
@@ -37,13 +95,13 @@ class BidirectionalEncoder(object):
     def apply(self, sentence, sentence_mask):
 
         state_below = self.table.apply(sentence)
-
+        #print('bin ,',K.ndim(state_below))
         # make sure state_below: n_steps * batch_size * embedding
         if K.ndim(state_below) == 2:
             state_below = K.expand_dims(state_below, 1)
-
+        #print('applying')
         hiddens_forward = self.forward.apply(state_below, sentence_mask)
-
+        #print('encoder apply h_f dim ', K.ndim(hiddens_forward))
         if sentence_mask is None:
             hiddens_backward = self.backward.apply(K.reverse(state_below, axes=0))
         else:
@@ -756,52 +814,27 @@ class GRU(object):
         if mask_below is None:
             mask_below = K.ones_like(K.sum(state_below, axis=2, keepdims=True))
 
-        if K.ndim(mask_below) == 2:
-            mask_below = K.expand_dims(mask_below)
+        if init_state is None:
+            # nb_samples,n_hids
+            init_state = K.repeat_elements(K.expand_dims(K.zeros_like(K.sum(state_below, axis=[0, 2]))), self.n_hids, axis=1)
+        print('init state ',K.ndim(init_state))
 
-        if self.with_context:
-            assert context
+        state_below_xh = K. dot(state_below, self.W_xh)
+        state_below_xz = K. dot(state_below, self.W_xz)
+        state_below_xr = K.dot(state_below, self.W_xr)
+        sequences = [state_below_xh, state_below_xz, state_below_xr, mask_below]
 
-            if init_state is None:
-                init_state = K.tanh(K.dot(context, self.W_c_init))
-
-            c_z = K. dot(context, self.W_cz)
-            c_r = K. dot(context, self.W_cr)
-            c_h = K.dot(context, self.W_ch)
-
-            if K._BACKEND == 'theano':
-                fn = lambda x_t, x_m, h_tm1: self._step_context(x_t, x_m, h_tm1, c_z, c_r, c_h)
-            else:
-                fn = lambda h_tm1, (x_t, x_m): self._step_context(x_t, x_m, h_tm1, c_z, c_r, c_h)
-
-            rval = K.scan(fn,
-                           sequences=[state_below, mask_below],
-                           outputs_initials=init_state,
-                           name=_p(self.pname, 'layers'))
-
-
+        if K._BACKEND == 'theano':
+            fn = lambda x_h, x_z, x_r, x_m, h_tm1: self._step(x_h, x_z, x_r, x_m, h_tm1)
         else:
-            if init_state is None:
-                # nb_samples,n_hids
-                init_state = K.repeat_elements(K.expand_dims(K.zeros_like(K.sum(state_below, axis=[0, 2]))), self.n_hids, axis=1)
+            fn = lambda h_tm1, (x_h, x_z, x_r, x_m): self._step(x_h, x_z, x_r, x_m, h_tm1)
 
-            state_below_xh = K. dot(state_below, self.W_xh)
-            state_below_xz = K. dot(state_below, self.W_xz)
-            state_below_xr = K.dot(state_below, self.W_xr)
-            sequences = [state_below_xh, state_below_xz, state_below_xr, mask_below]
-
-            if K._BACKEND == 'theano':
-                fn = lambda x_h, x_z, x_r, x_m, h_tm1: self._step(x_h, x_z, x_r, x_m, h_tm1)
-            else:
-                fn = lambda h_tm1, (x_h, x_z, x_r, x_m): self._step(x_h, x_z, x_r, x_m, h_tm1)
-
-            rval = K.scan(fn,
-                          sequences=sequences,
-                          outputs_initials=init_state,
-                          name=_p(self.pname, 'layers'))
+        rval = K.scan(fn,
+                      sequences=sequences,
+                      outputs_initials=init_state,
+                      name=_p(self.pname, 'layers'))
 
         self.output = rval
-
         return self.output
 
 
