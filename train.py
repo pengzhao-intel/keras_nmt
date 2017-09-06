@@ -240,9 +240,6 @@ def main(configuration, ps_device=None, devices=None):
                     enc_dec.save(path=configuration['saveto_best'])
             '''
             iter_count+=1
-            #print('iter ', iter_count)
-            if iter_count == 100:
-                break
         break
     cur_time = time.time()
     duration = cur_time - last_time
