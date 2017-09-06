@@ -70,7 +70,7 @@ class MKL_GRU(object):
 
 class BidirectionalEncoder(object):
 
-    def __init__(self, n_in, n_hids, table, name='rnn_encoder'):
+    def __init__(self, n_in, n_hids, table, mkl, name='rnn_encoder'):
 
         # lookup table
         self.table = table
@@ -78,14 +78,20 @@ class BidirectionalEncoder(object):
         self.n_in = n_in
         # hidden state dimension
         self.n_hids = n_hids
-
+        self.mkl = mkl
         self.params = []
         self.layers = []
-
-        self.forward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
+        if self.mkl == True:
+            print('with mkl')
+            self.forward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
+        else:
+            print('with no mkl')
+            self.forward = GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
         self.layers.append(self.forward)
-
-        self.backward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
+        if self.mkl == True:
+            self.backward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
+        else:
+            self.backward = GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
         self.layers.append(self.backward)
 
         for layer in self.layers:
