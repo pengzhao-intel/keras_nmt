@@ -122,9 +122,47 @@ class BidirectionalEncoder(object):
 
         return annotaitons
 
+class Attention_(object):
+    def __init__(self, n_hids, with_attention=True, name='Attention'):
+	
+	self.n_hids = n_hids
+	self.pname = name
+	self.with_attention = with_attention
+	self._init_params()
+
+    def _init_params(self):
+        shape_hh = (self.n_hids, self.n_hids)
+	if self.with_attention:
+            self.B_hp = norm_weight(shape=shape_hh, name=_p(self.pname, 'B_hp'))
+            self.b_tt = constant_weight(shape=(self.n_hids,), name=_p(self.pname, 'b_tt'))
+            self.D_pe = norm_weight(shape=(self.n_hids, 1), name=_p(self.pname, 'D_pe'))
+
+            self.params = [self.B_hp, self.b_tt, self.D_pe]
+	
+    def apply(self, h1, c, p_from_c):
+	h_shape = K.shape(h1)
+	# time_stpes, 1, nb_samples, dim
+        p_from_h = K.expand_dims(K.dot(h1, self.B_hp) + self.b_tt, axis=1)
+        # 1, time_stpes, nb_samples, dim
+        p_from_c = K.expand_dims(p_from_c, axis=0).repeat(h_shape[0], axis=0)
+	p = p_from_h + p_from_c
+        # energy = exp(dot(tanh(p), self.D_pe) + self.c_tt).reshape((source_len, target_num))
+        # since self.c_tt has nothing to do with the probs, why? since it contributes an e^c_tt() to the the denominator and nominator
+        # note: self.D_pe has a shape of (hidden_output_dim,1)
+        # time_steps, nb_samples, 1
+        energy = K.exp(K.dot(K.tanh(p), self.D_pe))
+
+        normalizer = K.sum(energy, axis=1, keepdims=True)
+        probs = energy / normalizer
+        probs = K.squeeze(probs, axis=3)
+
+	c = K.expand_dims(c, axis=0).repeat(h_shape[0], axis=0) 
+        ctx = K.sum(c * K.expand_dims(probs), axis=1)
+	return [ctx, probs]
+
 class Decoder(object):
 
-    def __init__(self, n_in, n_hids, n_cdim, maxout_part=2,
+    def __init__(self, mkl, n_in, n_hids, n_cdim, maxout_part=2,
                  name='rnn_decoder',
                  with_attention=True,
                  with_coverage=False,
@@ -145,8 +183,13 @@ class Decoder(object):
         self.coverage_type = coverage_type
         self.max_fertility = max_fertility
         self.with_context_gate = with_context_gate
+	self.mkl = mkl
 
         self._init_params()
+
+	#mkl decoder
+	self.attention_ = Attention_(self.n_hids, name=_p(name, '_attention'))
+	self.GRU_op = mkl_gru.GRU(hid=self.n_hids, return_sequences=True)
 
     def _init_params(self):
 
@@ -482,8 +525,26 @@ class Decoder(object):
                         fn = lambda  (h_tm1, ctx_tm1, probs_tm1, cov_tm1), (x_h, x_z, x_r, x_m) :  self._step_attention(x_h, x_z, x_r, x_m, h_tm1, c, c_mask, p_from_c, cov_tm1=cov_tm1, fertility=fertility)
                 else:
                     if K._BACKEND == 'theano':
-                        fn = lambda  x_h, x_z, x_r, x_m, h_tm1 :  self._step_attention(x_h, x_z, x_r, x_m, h_tm1, c, c_mask, p_from_c)
-                    else:
+        		if self.mkl == True:
+            		    print('with mkl')
+			    #alignment GRU
+			    W_x_a = K.concatenate([self.W_xh, self.W_xz, self.W_xr], axis=0)
+			    W_h_a = K.concatenate([self.W_n1_z, self.W_n1_r, self.W_n1_h], axis=0)
+			    b_a = K.concatenate([self.b_n1_z, self.b_n1_r, self.b_n1_h], axis=0)
+			    hidden_alignment = self.GRU_op(state_below,W_x_a, W_h_a, init_state, b_a)[0]
+			    #attention
+			    ctx, probs = self.attention_.apply(hidden_alignment, c, p_from_c)	
+		    	    #decoder GRU 
+			    W_x_c = K.concatenate([self.W_cz, self.W_cr, self.W_ch], axis=0)
+			    W_h_c = K.concatenate([self.W_hz, self.W_hr, self.W_hh], axis=0)
+			    b_c = K.concatenate([self.b_z, self.b_r, self.b_h], axis=0)
+			    init = hidden_alignment[K.shape(hidden_alignment)[0] - 1,:,:]
+			    hidden_decoder = self.GRU_op(ctx, W_x_c, W_h_c, init, b_c)[0]
+
+			    self.output = [hidden_decoder, ctx, probs]    
+                        else:
+			    fn = lambda  x_h, x_z, x_r, x_m, h_tm1 :  self._step_attention(x_h, x_z, x_r, x_m, h_tm1, c, c_mask, p_from_c)
+		    else:
                         fn = lambda  (h_tm1, ctx_tm1, probs_tm1), (x_h, x_z, x_r, x_m) :  self._step_attention(x_h, x_z, x_r, x_m, h_tm1, c, c_mask, p_from_c)
 
             else:
@@ -492,7 +553,8 @@ class Decoder(object):
                 else:
                     fn = lambda  (h_tm1,), (x_h, x_z, x_r, x_m) :  self._step_context(x_h, x_z, x_r, x_m, h_tm1, c_z, c_r, c_h, init_context)
 
-            self.output = K.scan(fn,
+            if self.mkl == False:
+	        self.output = K.scan(fn,
                                  sequences=sequences,
                                  outputs_initials=outputs_info,
                                  name=_p(self.pname, 'layers'))

@@ -208,7 +208,8 @@ class EncoderDecoder(object):
         self.table_trg = LookupTable(self.trg_vocab_size, self.n_in_trg, name='table_trg')
         self.layers.append(self.table_trg)
 
-        self.decoder = Decoder(self.n_in_trg,
+        self.decoder = Decoder(self.mkl,
+			       self.n_in_trg,
                                self.n_hids_trg,
                                2 * self.n_hids_src,
                                with_attention=self.with_attention,
