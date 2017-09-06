@@ -32,4 +32,5 @@ dict(
     # Start bleu validation after this many updates
     val_burn_in=1,
     val_burn_in_fine=150000,
+    mkl=True,
 )

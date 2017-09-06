@@ -183,7 +183,7 @@ class EncoderDecoder(object):
         self.maxout_part = kwargs.pop('maxout_part')
         self.path = kwargs.pop('saveto')
         self.clip_c = kwargs.pop('clip_c')
-
+        self.mkl = kwargs.pop('mkl')
         self.with_attention = kwargs.pop('with_attention')
 
         self.with_coverage = kwargs.pop('with_coverage')
@@ -202,7 +202,7 @@ class EncoderDecoder(object):
         self.table_src = LookupTable(self.src_vocab_size, self.n_in_src, name='table_src')
         self.layers.append(self.table_src)
 
-        self.encoder = BidirectionalEncoder(self.n_in_src, self.n_hids_src, self.table_src, name='birnn_encoder')
+        self.encoder = BidirectionalEncoder(self.n_in_src, self.n_hids_src, self.table_src, self.mkl, name='birnn_encoder')
         self.layers.append(self.encoder)
 
         self.table_trg = LookupTable(self.trg_vocab_size, self.n_in_trg, name='table_trg')
