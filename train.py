@@ -183,59 +183,67 @@ def main(configuration, ps_device=None, devices=None):
     max_epochs = configuration['finish_after']
     last_time = time.time()
     for x, x_mask, y, y_mask in ds.get_iterator():
-        print x.shape 
-        # for data parallel, we need to split the data into #num devices part
-        if devices and not prefer_to_model_parallel:
-            # ignore the case that the number of samples is less than the number of devices
-            num_devices = len(devices)
-            num_samples = len(x)
+        iter_count=0
+        print x.shape
+        while True:
+            
+            # for data parallel, we need to split the data into #num devices part
+            if devices and not prefer_to_model_parallel:
+                # ignore the case that the number of samples is less than the number of devices
+                num_devices = len(devices)
+                num_samples = len(x)
 
-            if num_samples < num_devices:
-                logger.warn('epoch %d \t updates %d ignored current mini-batch, since its number of samples (%d) < the number of devices (%d)'
-                    % (epoch, iters, num_samples, num_devices))
+                if num_samples < num_devices:
+                    logger.warn('epoch %d \t updates %d ignored current mini-batch, since its number of samples (%d) < the number of devices (%d)'
+                        % (epoch, iters, num_samples, num_devices))
+                    continue
+
+                inputs = []
+                for data in (x, x_mask, y, y_mask):
+                    parts = split(data, num_devices)
+                    parts = [item.T for item in parts]
+                    inputs.extend(parts)
+            else:
+                inputs = [x.T, x_mask.T, y.T, y_mask.T]
+            #print('train start')
+            tc = train_fn(inputs)
+            #print('train finish')
+            
+            iters += 1
+
+    #        num_of_words = np.prod(x.shape)            
+    #        words_per_sec = int(num_of_words / duration)
+    #        logger.info('epoch %d \t updates %d train cost %.4f use time %.4f sec, %d words/sec'
+    #                    % (epoch, iters, tc[0], duration, words_per_sec))
+            '''
+            # Commented for fast training
+            if iters % configuration['save_freq'] == 0:
+                enc_dec.save()
+
+            if iters % configuration['sample_freq'] == 0:
+                sampler.apply(x, y)
+
+            if iters < configuration['val_burn_in']:
                 continue
 
-            inputs = []
-            for data in (x, x_mask, y, y_mask):
-                parts = split(data, num_devices)
-                parts = [item.T for item in parts]
-                inputs.extend(parts)
-        else:
-            inputs = [x.T, x_mask.T, y.T, y_mask.T]
-        #print('train start')
-        tc = train_fn(inputs)
-        #print('train finish')
-        
-        iters += 1
-
-#        num_of_words = np.prod(x.shape)            
-#        words_per_sec = int(num_of_words / duration)
-#        logger.info('epoch %d \t updates %d train cost %.4f use time %.4f sec, %d words/sec'
-#                    % (epoch, iters, tc[0], duration, words_per_sec))
-        '''
-        # Commented for fast training
-        if iters % configuration['save_freq'] == 0:
-            enc_dec.save()
-
-        if iters % configuration['sample_freq'] == 0:
-            sampler.apply(x, y)
-
-        if iters < configuration['val_burn_in']:
-            continue
-        '''
-        if (iters <= configuration['val_burn_in_fine'] and iters % configuration['valid_freq'] == 0) \
-           or (iters > configuration['val_burn_in_fine'] and iters % configuration['valid_freq_fine'] == 0):
-            valid_bleu = bleuvalidator.apply(vs, configuration['valid_out'])
-            os.system('mkdir -p results/%d' % iters)
-            os.system('mv %s* %s results/%d' % (configuration['valid_out'], configuration['saveto'], iters))
-            logger.info('valid_test \t epoch %d \t updates %d valid_bleu %.4f'
-                    % (epoch, iters, valid_bleu))
-            if valid_bleu > valid_bleu_best:
-                valid_bleu_best = valid_bleu
-                epoch_best = epoch
-                iters_best = iters
-                enc_dec.save(path=configuration['saveto_best'])
-        
+            if (iters <= configuration['val_burn_in_fine'] and iters % configuration['valid_freq'] == 0) \
+               or (iters > configuration['val_burn_in_fine'] and iters % configuration['valid_freq_fine'] == 0):
+                valid_bleu = bleuvalidator.apply(vs, configuration['valid_out'])
+                os.system('mkdir -p results/%d' % iters)
+                os.system('mv %s* %s results/%d' % (configuration['valid_out'], configuration['saveto'], iters))
+                logger.info('valid_test \t epoch %d \t updates %d valid_bleu %.4f'
+                        % (epoch, iters, valid_bleu))
+                if valid_bleu > valid_bleu_best:
+                    valid_bleu_best = valid_bleu
+                    epoch_best = epoch
+                    iters_best = iters
+                    enc_dec.save(path=configuration['saveto_best'])
+            '''
+            iter_count+=1
+            #print('iter ', iter_count)
+            if iter_count == 100:
+                break
+        break
     cur_time = time.time()
     duration = cur_time - last_time
     print('duration ',duration)
