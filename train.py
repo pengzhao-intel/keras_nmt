@@ -1,6 +1,8 @@
 import os
 import json
 from keras.backend import _backend
+import numpy
+import theano
 # Devices, the first one is parameter server, separated by ','
 devices = [device for device in os.getenv('DEVICES', '').split(',') if device]
 # Get keras backend
@@ -164,7 +166,7 @@ def main(configuration, ps_device=None, devices=None):
 
     # train function
     train_fn = enc_dec.train_fn
-
+    
     # train data
     ds = DStream(**configuration)
 
@@ -179,9 +181,10 @@ def main(configuration, ps_device=None, devices=None):
     epoch_best = -1
     iters_best = -1
     max_epochs = configuration['finish_after']
-
+    logger.info("epochs %d" %(max_epochs))
     for epoch in range(max_epochs):
         for x, x_mask, y, y_mask in ds.get_iterator():
+            iter_count=0
             last_time = time.time()
             # for data parallel, we need to split the data into #num devices part
             if devices and not prefer_to_model_parallel:
@@ -201,23 +204,18 @@ def main(configuration, ps_device=None, devices=None):
                     inputs.extend(parts)
             else:
                 inputs = [x.T, x_mask.T, y.T, y_mask.T]
-
+            #print('train start')
             tc = train_fn(inputs)
-
-            cur_time = time.time()
+            #print('train finish')
+            
             iters += 1
 
-            num_of_words = np.prod(x.shape)
+            cur_time = time.time()
             duration = cur_time - last_time
+            num_of_words = np.prod(x.shape)            
             words_per_sec = int(num_of_words / duration)
-            logger.info('epoch %d \t updates %d train cost %.4f use time %.4f sec, %d words/sec'
-                        % (epoch, iters, tc[0], duration, words_per_sec))
-
-            if devices and not prefer_to_model_parallel:    # when do model parallel, only return the total cost
-                for i, device in enumerate(devices):
-                    logger.info('epoch %d \t updates %d device %s train cost %.4f'
-                        % (epoch, iters, device, tc[i + 1]))
-
+            logger.info('epoch %d \t updates %d train cost %.4f use time %.4f sec, %d words/sec, data x %s, data y %s'
+                        % (epoch, iters, tc[0], duration, words_per_sec, x.shape, y.shape))
             '''
             # Commented for fast training
             if iters % configuration['save_freq'] == 0:
@@ -242,9 +240,8 @@ def main(configuration, ps_device=None, devices=None):
                     iters_best = iters
                     enc_dec.save(path=configuration['saveto_best'])
             '''
+            iter_count+=1
 
-    logger.info('final result: epoch %d \t updates %d valid_bleu_best %.4f'
-            % (epoch_best, iters_best, valid_bleu_best))
 
 if __name__ == '__main__':
 

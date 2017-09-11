@@ -6,13 +6,71 @@ from utils import ReplicateLayer, _p
 import keras.backend as K
 
 import backend
-
+import mkl_gru
 
 K.scan = backend.scan
 
+class MKL_GRU(object):
+
+    def __init__(self, n_in, n_hids, name='GRU', with_context=False):
+
+        self.n_in = n_in
+        self.n_hids = n_hids
+        self.pname = name
+
+        self.with_context = with_context
+        if self.with_context:
+            self.c_hids = n_hids
+
+        self._init_params()
+
+
+    def _init_params(self):
+
+        shape_xh = (self.n_in*3, self.n_hids)
+        shape_hh = (self.n_hids*3, self.n_hids)
+        self.W_x = norm_weight(shape=shape_xh, name=_p(self.pname, 'W_x'))
+        self.b = constant_weight(shape=(self.n_hids*3,), name=_p(self.pname, 'b'))
+        self.W_h = ortho_weight(shape=shape_hh, name=_p(self.pname, 'W_h'))
+        self.params = [self.W_x, self.W_h, self.b]
+        self.GRU_op = mkl_gru.GRU(hid=self.n_hids, return_sequences=True)
+        self.h_init_state = numpy.zeros((80, 1000), numpy.float64)
+
+    def apply(self, state_below, mask_below=None, init_state=None, context=None):
+
+        if K.ndim(state_below) == 2:
+            state_below = K.expand_dims(state_below, 1)
+
+        if mask_below is None:
+            mask_below = K.ones_like(K.sum(state_below, axis=2, keepdims=True))
+
+        if K.ndim(mask_below) == 2:
+            mask_below = K.expand_dims(mask_below)
+
+        #if init_state is None:
+            # nb_samples,n_hids
+        init_state = K.repeat_elements(K.expand_dims(K.zeros_like(K.sum(state_below, axis=[0, 2]))), self.n_hids, axis=1)
+        '''
+        state_below_xh = K. dot(state_below, self.W_xh)
+        state_below_xz = K. dot(state_below, self.W_xz)
+        state_below_xr = K.dot(state_below, self.W_xr)
+        sequences = [state_below_xh, state_below_xz, state_below_xr, mask_below]
+        fn = lambda x_h, x_z, x_r, x_m, h_tm1: self._step(x_h, x_z, x_r, x_m, h_tm1)
+        rval = K.scan(fn, sequences=sequences, outputs_initials=init_state, name=_p(self.pname, 'layers'))
+        self.output = rval
+        '''
+        #print('1,', K.ndim(init_state))
+        #print(init_state.shape)
+        #exit()
+        self.output = self.GRU_op(state_below, self.W_x, self.W_h, init_state, self.b)[0]
+        #print('2,', K.ndim(self.output))
+        return self.output
+
+
+
 class BidirectionalEncoder(object):
 
-    def __init__(self, n_in, n_hids, table, name='rnn_encoder'):
+    def __init__(self, n_in, n_hids, table, mkl, name='rnn_encoder'):
 
         # lookup table
         self.table = table
@@ -20,14 +78,20 @@ class BidirectionalEncoder(object):
         self.n_in = n_in
         # hidden state dimension
         self.n_hids = n_hids
-
+        self.mkl = mkl
         self.params = []
         self.layers = []
-
-        self.forward = GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
+        if self.mkl == True:
+            print('with mkl')
+            self.forward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
+        else:
+            print('with no mkl')
+            self.forward = GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
         self.layers.append(self.forward)
-
-        self.backward = GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
+        if self.mkl == True:
+            self.backward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
+        else:
+            self.backward = GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
         self.layers.append(self.backward)
 
         for layer in self.layers:
@@ -37,13 +101,13 @@ class BidirectionalEncoder(object):
     def apply(self, sentence, sentence_mask):
 
         state_below = self.table.apply(sentence)
-
+        #print('bin ,',K.ndim(state_below))
         # make sure state_below: n_steps * batch_size * embedding
         if K.ndim(state_below) == 2:
             state_below = K.expand_dims(state_below, 1)
-
+        #print('applying')
         hiddens_forward = self.forward.apply(state_below, sentence_mask)
-
+        #print('encoder apply h_f dim ', K.ndim(hiddens_forward))
         if sentence_mask is None:
             hiddens_backward = self.backward.apply(K.reverse(state_below, axes=0))
         else:
@@ -58,9 +122,47 @@ class BidirectionalEncoder(object):
 
         return annotaitons
 
+class Attention_(object):
+    def __init__(self, n_hids, with_attention=True, name='Attention'):
+	
+	self.n_hids = n_hids
+	self.pname = name
+	self.with_attention = with_attention
+	self._init_params()
+
+    def _init_params(self):
+        shape_hh = (self.n_hids, self.n_hids)
+	if self.with_attention:
+            self.B_hp = norm_weight(shape=shape_hh, name=_p(self.pname, 'B_hp'))
+            self.b_tt = constant_weight(shape=(self.n_hids,), name=_p(self.pname, 'b_tt'))
+            self.D_pe = norm_weight(shape=(self.n_hids, 1), name=_p(self.pname, 'D_pe'))
+
+            self.params = [self.B_hp, self.b_tt, self.D_pe]
+	
+    def apply(self, h1, c, p_from_c):
+	h_shape = K.shape(h1)
+	# time_stpes, 1, nb_samples, dim
+        p_from_h = K.expand_dims(K.dot(h1, self.B_hp) + self.b_tt, axis=1)
+        # 1, time_stpes, nb_samples, dim
+        p_from_c = K.expand_dims(p_from_c, axis=0).repeat(h_shape[0], axis=0)
+	p = p_from_h + p_from_c
+        # energy = exp(dot(tanh(p), self.D_pe) + self.c_tt).reshape((source_len, target_num))
+        # since self.c_tt has nothing to do with the probs, why? since it contributes an e^c_tt() to the the denominator and nominator
+        # note: self.D_pe has a shape of (hidden_output_dim,1)
+        # time_steps, nb_samples, 1
+        energy = K.exp(K.dot(K.tanh(p), self.D_pe))
+
+        normalizer = K.sum(energy, axis=1, keepdims=True)
+        probs = energy / normalizer
+        probs = K.squeeze(probs, axis=3)
+
+	c = K.expand_dims(c, axis=0).repeat(h_shape[0], axis=0) 
+        ctx = K.sum(c * K.expand_dims(probs), axis=1)
+	return [ctx, probs]
+
 class Decoder(object):
 
-    def __init__(self, n_in, n_hids, n_cdim, maxout_part=2,
+    def __init__(self, mkl, n_in, n_hids, n_cdim, maxout_part=2,
                  name='rnn_decoder',
                  with_attention=True,
                  with_coverage=False,
@@ -81,8 +183,13 @@ class Decoder(object):
         self.coverage_type = coverage_type
         self.max_fertility = max_fertility
         self.with_context_gate = with_context_gate
+	self.mkl = mkl
 
         self._init_params()
+
+	#mkl decoder
+	self.attention_ = Attention_(self.n_hids, name=_p(name, '_attention'))
+	self.GRU_op = mkl_gru.GRU(hid=self.n_hids, return_sequences=True)
 
     def _init_params(self):
 
@@ -418,8 +525,26 @@ class Decoder(object):
                         fn = lambda  (h_tm1, ctx_tm1, probs_tm1, cov_tm1), (x_h, x_z, x_r, x_m) :  self._step_attention(x_h, x_z, x_r, x_m, h_tm1, c, c_mask, p_from_c, cov_tm1=cov_tm1, fertility=fertility)
                 else:
                     if K._BACKEND == 'theano':
-                        fn = lambda  x_h, x_z, x_r, x_m, h_tm1 :  self._step_attention(x_h, x_z, x_r, x_m, h_tm1, c, c_mask, p_from_c)
-                    else:
+        		if self.mkl == True:
+            		    print('with mkl')
+			    #alignment GRU
+			    W_x_a = K.concatenate([self.W_xh, self.W_xz, self.W_xr], axis=0)
+			    W_h_a = K.concatenate([self.W_n1_z, self.W_n1_r, self.W_n1_h], axis=0)
+			    b_a = K.concatenate([self.b_n1_z, self.b_n1_r, self.b_n1_h], axis=0)
+			    hidden_alignment = self.GRU_op(state_below,W_x_a, W_h_a, init_state, b_a)[0]
+			    #attention
+			    ctx, probs = self.attention_.apply(hidden_alignment, c, p_from_c)	
+		    	    #decoder GRU 
+			    W_x_c = K.concatenate([self.W_cz, self.W_cr, self.W_ch], axis=0)
+			    W_h_c = K.concatenate([self.W_hz, self.W_hr, self.W_hh], axis=0)
+			    b_c = K.concatenate([self.b_z, self.b_r, self.b_h], axis=0)
+			    init = hidden_alignment[K.shape(hidden_alignment)[0] - 1,:,:]
+			    hidden_decoder = self.GRU_op(ctx, W_x_c, W_h_c, init, b_c)[0]
+
+			    self.output = [hidden_decoder, ctx, probs]    
+                        else:
+			    fn = lambda  x_h, x_z, x_r, x_m, h_tm1 :  self._step_attention(x_h, x_z, x_r, x_m, h_tm1, c, c_mask, p_from_c)
+		    else:
                         fn = lambda  (h_tm1, ctx_tm1, probs_tm1), (x_h, x_z, x_r, x_m) :  self._step_attention(x_h, x_z, x_r, x_m, h_tm1, c, c_mask, p_from_c)
 
             else:
@@ -428,7 +553,8 @@ class Decoder(object):
                 else:
                     fn = lambda  (h_tm1,), (x_h, x_z, x_r, x_m) :  self._step_context(x_h, x_z, x_r, x_m, h_tm1, c_z, c_r, c_h, init_context)
 
-            self.output = K.scan(fn,
+            if self.mkl == False:
+	        self.output = K.scan(fn,
                                  sequences=sequences,
                                  outputs_initials=outputs_info,
                                  name=_p(self.pname, 'layers'))
@@ -756,52 +882,27 @@ class GRU(object):
         if mask_below is None:
             mask_below = K.ones_like(K.sum(state_below, axis=2, keepdims=True))
 
-        if K.ndim(mask_below) == 2:
-            mask_below = K.expand_dims(mask_below)
+        if init_state is None:
+            # nb_samples,n_hids
+            init_state = K.repeat_elements(K.expand_dims(K.zeros_like(K.sum(state_below, axis=[0, 2]))), self.n_hids, axis=1)
+        print('init state ',K.ndim(init_state))
 
-        if self.with_context:
-            assert context
+        state_below_xh = K. dot(state_below, self.W_xh)
+        state_below_xz = K. dot(state_below, self.W_xz)
+        state_below_xr = K.dot(state_below, self.W_xr)
+        sequences = [state_below_xh, state_below_xz, state_below_xr, mask_below]
 
-            if init_state is None:
-                init_state = K.tanh(K.dot(context, self.W_c_init))
-
-            c_z = K. dot(context, self.W_cz)
-            c_r = K. dot(context, self.W_cr)
-            c_h = K.dot(context, self.W_ch)
-
-            if K._BACKEND == 'theano':
-                fn = lambda x_t, x_m, h_tm1: self._step_context(x_t, x_m, h_tm1, c_z, c_r, c_h)
-            else:
-                fn = lambda h_tm1, (x_t, x_m): self._step_context(x_t, x_m, h_tm1, c_z, c_r, c_h)
-
-            rval = K.scan(fn,
-                           sequences=[state_below, mask_below],
-                           outputs_initials=init_state,
-                           name=_p(self.pname, 'layers'))
-
-
+        if K._BACKEND == 'theano':
+            fn = lambda x_h, x_z, x_r, x_m, h_tm1: self._step(x_h, x_z, x_r, x_m, h_tm1)
         else:
-            if init_state is None:
-                # nb_samples,n_hids
-                init_state = K.repeat_elements(K.expand_dims(K.zeros_like(K.sum(state_below, axis=[0, 2]))), self.n_hids, axis=1)
+            fn = lambda h_tm1, (x_h, x_z, x_r, x_m): self._step(x_h, x_z, x_r, x_m, h_tm1)
 
-            state_below_xh = K. dot(state_below, self.W_xh)
-            state_below_xz = K. dot(state_below, self.W_xz)
-            state_below_xr = K.dot(state_below, self.W_xr)
-            sequences = [state_below_xh, state_below_xz, state_below_xr, mask_below]
-
-            if K._BACKEND == 'theano':
-                fn = lambda x_h, x_z, x_r, x_m, h_tm1: self._step(x_h, x_z, x_r, x_m, h_tm1)
-            else:
-                fn = lambda h_tm1, (x_h, x_z, x_r, x_m): self._step(x_h, x_z, x_r, x_m, h_tm1)
-
-            rval = K.scan(fn,
-                          sequences=sequences,
-                          outputs_initials=init_state,
-                          name=_p(self.pname, 'layers'))
+        rval = K.scan(fn,
+                      sequences=sequences,
+                      outputs_initials=init_state,
+                      name=_p(self.pname, 'layers'))
 
         self.output = rval
-
         return self.output
 
 
