@@ -7,3 +7,5 @@
 *.so
 *.bak
 *.pkl
+*.shuffle
+*.sh
