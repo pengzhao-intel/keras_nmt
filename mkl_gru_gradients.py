@@ -8,11 +8,12 @@ from theano.tensor.blas import ldflags
 class GRUGradients(gof.Op):
     __props__ = ('hid', 'step', 'dim', 'return_sequences')
 
-    def __init__(self, hid, step=None, dim=None, return_sequences=False, bias=False):
+    def __init__(self, hid, step=None, dim=None, return_sequences=False, max_len=None, bias=False):
         self.hid = hid
         self.step = step
         self.dim = dim
         self.return_sequences = return_sequences
+        self.max_len = max_len
         self.bias = bias
         super(GRUGradients, self).__init__()
 
@@ -83,6 +84,7 @@ class GRUGradients(gof.Op):
             size_t batch_size;
             size_t embed_dims;
             size_t hid_dims;
+            size_t max_len;
 
             %(dtype)s* dhnext;
 
@@ -106,6 +108,7 @@ class GRUGradients(gof.Op):
             batch_size = 0;
             embed_dims = 0;
             hid_dims = 0;
+            max_len = 0;
 
             dhnext = NULL;
 
@@ -197,6 +200,11 @@ class GRUGradients(gof.Op):
         else:
             return_sequences = 0
 
+        if self.max_len:
+            max_len = int(self.max_len)
+        else:
+            max_len = 0
+
         if node.inputs[0].type.dtype == 'float32':
             dtype = 's'
             d = 'float'
@@ -212,6 +220,8 @@ class GRUGradients(gof.Op):
             time_step  = PyArray_DIMS(%(X)s)[0];
             batch_size = PyArray_DIMS(%(X)s)[1];
             embed_dims = PyArray_DIMS(%(X)s)[2];
+
+            max_len = %(max_len)s > time_step ? %(max_len)s : time_step;
 
             hid_dims = PyArray_DIMS(%(hid_state)s)[2];
             assert (hid_dims == %(hid)s);

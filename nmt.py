@@ -190,6 +190,11 @@ class EncoderDecoder(object):
         self.coverage_dim = kwargs.pop('coverage_dim')
         self.coverage_type = kwargs.pop('coverage_type')
         self.max_fertility = kwargs.pop('max_fertility')
+
+        self.max_len = 10 * kwargs.pop('seq_len_src')
+
+        print(self.max_len)
+
         if self.coverage_type is 'linguistic':
             # make sure the dimension of linguistic coverage is always 1
             self.coverage_dim = 1
@@ -202,7 +207,8 @@ class EncoderDecoder(object):
         self.table_src = LookupTable(self.src_vocab_size, self.n_in_src, name='table_src')
         self.layers.append(self.table_src)
 
-        self.encoder = BidirectionalEncoder(self.n_in_src, self.n_hids_src, self.table_src, self.mkl, name='birnn_encoder')
+        self.encoder = BidirectionalEncoder(self.n_in_src, self.n_hids_src, self.table_src, self.mkl,
+                                            name='birnn_encoder', max_len=self.max_len)
         self.layers.append(self.encoder)
 
         self.table_trg = LookupTable(self.trg_vocab_size, self.n_in_trg, name='table_trg')
@@ -219,7 +225,8 @@ class EncoderDecoder(object):
                                max_fertility=self.max_fertility,
                                with_context_gate=self.with_context_gate,
                                maxout_part=self.maxout_part,
-                               name='rnn_decoder')
+                               name='rnn_decoder',
+                               max_len=self.max_len)
 
         self.layers.append(self.decoder)
         self.logistic_layer = LogisticRegression(self.n_in_trg, self.trg_vocab_size)

@@ -12,11 +12,12 @@ K.scan = backend.scan
 
 class MKL_GRU(object):
 
-    def __init__(self, n_in, n_hids, name='GRU', with_context=False):
+    def __init__(self, n_in, n_hids, name='GRU', with_context=False, max_len=None):
 
         self.n_in = n_in
         self.n_hids = n_hids
         self.pname = name
+        self.max_len = max_len
 
         self.with_context = with_context
         if self.with_context:
@@ -33,7 +34,7 @@ class MKL_GRU(object):
         self.b = constant_weight(shape=(self.n_hids*3,), name=_p(self.pname, 'b'))
         self.W_h = ortho_weight(shape=shape_hh, name=_p(self.pname, 'W_h'))
         self.params = [self.W_x, self.W_h, self.b]
-        self.GRU_op = mkl_gru.GRU(hid=self.n_hids, return_sequences=True)
+        self.GRU_op = mkl_gru.GRU(hid=self.n_hids, return_sequences=True, max_len=self.max_len)
         self.h_init_state = numpy.zeros((80, 1000), numpy.float64)
 
     def apply(self, state_below, mask_below=None, init_state=None, context=None):
@@ -70,7 +71,7 @@ class MKL_GRU(object):
 
 class BidirectionalEncoder(object):
 
-    def __init__(self, n_in, n_hids, table, mkl, name='rnn_encoder'):
+    def __init__(self, n_in, n_hids, table, mkl, name='rnn_encoder', max_len=None):
 
         # lookup table
         self.table = table
@@ -81,15 +82,17 @@ class BidirectionalEncoder(object):
         self.mkl = mkl
         self.params = []
         self.layers = []
+        self.max_len = max_len
+
         if self.mkl == True:
             print('with mkl')
-            self.forward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
+            self.forward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'forward'), max_len=max_len)
         else:
             print('with no mkl')
             self.forward = GRU(self.n_in, self.n_hids, name=_p(name, 'forward'))
         self.layers.append(self.forward)
         if self.mkl == True:
-            self.backward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
+            self.backward = MKL_GRU(self.n_in, self.n_hids, name=_p(name, 'backward'), max_len=max_len)
         else:
             self.backward = GRU(self.n_in, self.n_hids, name=_p(name, 'backward'))
         self.layers.append(self.backward)
@@ -169,7 +172,8 @@ class Decoder(object):
                  coverage_dim=1,
                  coverage_type='linguistic',
                  max_fertility=2,
-                 with_context_gate=False):
+                 with_context_gate=False,
+                 max_len=None):
 
         self.n_in = n_in
         self.n_hids = n_hids
@@ -183,13 +187,12 @@ class Decoder(object):
         self.coverage_type = coverage_type
         self.max_fertility = max_fertility
         self.with_context_gate = with_context_gate
-	self.mkl = mkl
-
+        self.mkl = mkl
+        self.max_len = max_len
         self._init_params()
-
-	#mkl decoder
-	self.attention_ = Attention_(self.n_hids, name=_p(name, '_attention'))
-	self.GRU_op = mkl_gru.GRU(hid=self.n_hids, return_sequences=True)
+	    #mkl decoder
+        self.attention_ = Attention_(self.n_hids, name=_p(name, '_attention'))
+        self.GRU_op = mkl_gru.GRU(hid=self.n_hids, return_sequences=True, max_len=self.max_len)
 
     def _init_params(self):
 
