@@ -181,12 +181,11 @@ def main(configuration, ps_device=None, devices=None):
     epoch_best = -1
     iters_best = -1
     max_epochs = configuration['finish_after']
-    last_time = time.time()
-    for x, x_mask, y, y_mask in ds.get_iterator():
-        iter_count=0
-        print x.shape
-        while True:
-            
+    logger.info("epochs %d" %(max_epochs))
+    for epoch in range(max_epochs):
+        for x, x_mask, y, y_mask in ds.get_iterator():
+            iter_count=0
+            last_time = time.time()
             # for data parallel, we need to split the data into #num devices part
             if devices and not prefer_to_model_parallel:
                 # ignore the case that the number of samples is less than the number of devices
@@ -211,10 +210,12 @@ def main(configuration, ps_device=None, devices=None):
             
             iters += 1
 
-    #        num_of_words = np.prod(x.shape)            
-    #        words_per_sec = int(num_of_words / duration)
-    #        logger.info('epoch %d \t updates %d train cost %.4f use time %.4f sec, %d words/sec'
-    #                    % (epoch, iters, tc[0], duration, words_per_sec))
+            cur_time = time.time()
+            duration = cur_time - last_time
+            num_of_words = np.prod(x.shape)            
+            words_per_sec = int(num_of_words / duration)
+            logger.info('epoch %d \t updates %d train cost %.4f use time %.4f sec, %d words/sec, data x %s, data y %s'
+                        % (epoch, iters, tc[0], duration, words_per_sec, x.shape, y.shape))
             '''
             # Commented for fast training
             if iters % configuration['save_freq'] == 0:
@@ -240,11 +241,6 @@ def main(configuration, ps_device=None, devices=None):
                     enc_dec.save(path=configuration['saveto_best'])
             '''
             iter_count+=1
-        break
-    cur_time = time.time()
-    duration = cur_time - last_time
-    print('duration ',duration)
-
 
 
 if __name__ == '__main__':
