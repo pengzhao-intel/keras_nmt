@@ -7,6 +7,7 @@ import keras.backend as K
 
 import backend
 import mkl_gru
+import sum_op
 
 K.scan = backend.scan
 
@@ -43,14 +44,23 @@ class MKL_GRU(object):
             state_below = K.expand_dims(state_below, 1)
 
         if mask_below is None:
-            mask_below = K.ones_like(K.sum(state_below, axis=2, keepdims=True))
+            #mask_below = K.ones_like(K.sum(state_below, axis=2, keepdims=True))
+            print "--sum--MKL_GRU"
+            mask_below = K.ones_like(sum_op.Sum_op(keepdim=True, dimension=2)(state_below))
 
         if K.ndim(mask_below) == 2:
             mask_below = K.expand_dims(mask_below)
 
         #if init_state is None:
             # nb_samples,n_hids
-        init_state = K.repeat_elements(K.expand_dims(K.zeros_like(K.sum(state_below, axis=[0, 2]))), self.n_hids, axis=1)
+        #init_state = K.repeat_elements(K.expand_dims(K.zeros_like(K.sum(state_below, axis=[0, 2]))), self.n_hids, axis=1)
+        print "--sum--MKL_GRU"
+        tmp1 = sum_op.Sum_op(keepdim=True, dimension=0)(state_below)
+        tmp2 = K.squeeze(tmp1,0)
+        print "--sum--MKL_GRU"
+        tmp2 = sum_op.Sum_op(keepdim=True, dimension=1)(tmp2)
+        tmp = K.squeeze(tmp2,1)
+        init_state = K.repeat_elements(K.expand_dims(K.zeros_like(tmp)), self.n_hids, axis=1)
         '''
         state_below_xh = K. dot(state_below, self.W_xh)
         state_below_xz = K. dot(state_below, self.W_xz)
@@ -155,12 +165,18 @@ class Attention_(object):
         # time_steps, nb_samples, 1
         energy = K.exp(K.dot(K.tanh(p), self.D_pe))
 
-        normalizer = K.sum(energy, axis=1, keepdims=True)
+        #normalizer = K.sum(energy, axis=1, keepdims=True)
+        print "--sum--attention:normalizer"
+        normalizer = sum_op.Sum_op(keepdim=True, dimension=1)(energy)
         probs = energy / normalizer
         probs = K.squeeze(probs, axis=3)
 
         c = K.expand_dims(c, axis=0).repeat(h_shape[0], axis=0) 
-        ctx = K.sum(c * K.expand_dims(probs), axis=1)
+        #ctx = K.sum(c * K.expand_dims(probs), axis=1)
+        print "--sum--attention:ctx"
+        ctx = sum_op.Sum_op(keepdim=True, dimension=1)(c * K.expand_dims(probs))
+        ctx = K.squeeze(ctx, axis=1)
+
         return [ctx, probs]
 
 class Decoder(object):
@@ -416,11 +432,16 @@ class Decoder(object):
         if c_m is not None:
             energy *= c_m
 
-        normalizer = K.sum(energy, axis=0, keepdims=True)
+        print "--sum--attention ori:normalizer"
+        #normalizer = K.sum(energy, axis=0, keepdims=True)
+        normalizer = sum_op.Sum_op(keepdim=True, dimension=0)(energy)
         probs = energy / normalizer
         probs = K.squeeze(probs, axis=2)
 
-        ctx = K.sum(c * K.expand_dims(probs), axis=0)
+        print "--sum--attention ori:ctx"
+        #ctx = K.sum(c * K.expand_dims(probs), axis=0)
+        ctx = sum_op.Sum_op(keepdim=True, dimension=0)(c * K.expand_dims(probs))
+        ctx = K.squeeze(ctx, axis=0)
 
         # update coverage after producing attention probabilities at time t
         if self.with_coverage:
@@ -468,7 +489,9 @@ class Decoder(object):
 
         # mask
         if mask_below is None:    # sampling or beamsearch
-            mask_below = K.ones_like(K.sum(state_below, axis=-1, keepdims=True))    # nb_samples
+            #mask_below = K.ones_like(K.sum(state_below, axis=-1, keepdims=True))    # nb_samples
+            print "--sum--decoder"
+            mask_below = K.ones_like(sum_op.Sum_op(keepdim=True, dimension=-1)(state_below))
 
         if K.ndim(mask_below) != K.ndim(state_below):
             mask_below = K.expand_dims(mask_below)

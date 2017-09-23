@@ -19,6 +19,7 @@ from models import LookupTable, LogisticRegression, BidirectionalEncoder, Decode
 from utils import Dropout
 from algorithm import adadelta, grad_clip
 
+import sum_op
 # TODO: move to backend
 
 
@@ -108,8 +109,11 @@ if K._BACKEND == 'tensorflow':
         if mask is not None:
             mask_flat = K.flatten(mask)  # time_steps*nb_samples
             ce *= mask_flat
-
-        return K.sum(ce) / nb_samples
+        print "--sum--sampled_softmax_loss"
+        tmp = sum_op.Sum_op(keepdim=True, dimension=0)(ce)
+        tmp = K.squeeze(tmp,0)
+        #return K.sum(ce) / nb_samples
+        return tmp / nb_samples
 
 
 def lookup_table(table, indice, name=None):
@@ -140,7 +144,11 @@ def get_category_cross_entropy_from_flat_logits(logits_flat, targets, mask=None)
         mask_flat = K.flatten(mask)
         ce *= mask_flat
 
-    return K.sum(ce) / nb_samples
+    print "--sum--get_category_cross_entropy_from_flat_logits"
+    tmp = sum_op.Sum_op(keepdim=True, dimension=0)(ce)
+    tmp = K.squeeze(tmp,0)
+    #return K.sum(ce) / nb_samples
+    return tmp / nb_samples
 
 
 def get_probs_from_logits(logits):
@@ -215,7 +223,7 @@ class EncoderDecoder(object):
         self.layers.append(self.table_trg)
 
         self.decoder = Decoder(self.mkl,
-			       self.n_in_trg,
+                               self.n_in_trg,
                                self.n_hids_trg,
                                2 * self.n_hids_src,
                                with_attention=self.with_attention,
@@ -303,7 +311,13 @@ class EncoderDecoder(object):
         # init_context = annotations[0, :, -self.n_hids_src:]
         # modification #1
         # mean pooling
-        init_context = K.sum(annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+        #init_context = K.sum(annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+        print "--sum--calc_loss"
+        tmp = sum_op.Sum_op(keepdim=True, dimension=0)(annotations * src_mask_3d)
+        tmp1 = K.squeeze(tmp,0)
+        tmp = sum_op.Sum_op(keepdim=True, dimension=0)(src_mask_3d)
+        tmp2 = K.squeeze(tmp,0)
+        init_context = tmp1 / tmp2
 
         trg_emb = self.table_trg.apply(trg)
         # shift_right assumes a 3D tensor, and time steps is dimension one
@@ -349,8 +363,11 @@ class EncoderDecoder(object):
 
             cost += reconstruction_cost * self.reconstruction_weight
 
-        L1 = sum([K.sum(K.abs(param)) for param in self.params])
-        L2 = sum([K.sum(K.square(param)) for param in self.params])
+        #L1 = sum([K.sum(K.abs(param)) for param in self.params])
+        #L2 = sum([K.sum(K.square(param)) for param in self.params])
+        print "--sum--calc_lossL1L2"
+        L1 = sum([K.squeeze(sum_op.Sum_op(keepdim=True, dimension=0)(K.abs(param)), 0)for param in self.params])
+        L2 = sum([K.squeeze(sum_op.Sum_op(keepdim=True, dimension=0)(K.square(param)), 0)for param in self.params])
 
         params_regular = L1 * l1_reg_weight + L2 * l2_reg_weight
 
@@ -393,7 +410,13 @@ class EncoderDecoder(object):
 
             annotations = self.encoder.apply(src, src_mask_3d)
 
-            init_context = K.sum(annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+            #init_context = K.sum(annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+            print "--sum--calc_loss_with_model_parallel"
+            tmp = sum_op.Sum_op(keepdim=True, dimension=0)(annotations * src_mask_3d)
+            tmp1 = K.squeeze(tmp,0)
+            tmp = sum_op.Sum_op(keepdim=True, dimension=0)(src_mask_3d)
+            tmp2 = K.squeeze(tmp,0)
+            init_context = tmp1 / tmp2
 
             trg_emb = self.table_trg.apply(trg)
             # shift_right assumes a 3D tensor, and time steps is dimension one
@@ -441,8 +464,11 @@ class EncoderDecoder(object):
             with tf.device(devices[0]):
                 cost += reconstruction_cost * self.reconstruction_weight
 
-        L1 = sum([K.sum(K.abs(param)) for param in self.params])
-        L2 = sum([K.sum(K.square(param)) for param in self.params])
+        #L1 = sum([K.sum(K.abs(param)) for param in self.params])
+        #L2 = sum([K.sum(K.square(param)) for param in self.params])
+        print "--sum--calc_loss_with_model_parallelL1L2"
+        L1 = sum([K.squeeze(sum_op.Sum_op(keepdim=True, dimension=0)(K.abs(param)), 0)for param in self.params])
+        L2 = sum([K.squeeze(sum_op.Sum_op(keepdim=True, dimension=0)(K.square(param)), 0)for param in self.params])
 
         params_regular = L1 * l1_reg_weight + L2 * l2_reg_weight
 
@@ -462,7 +488,13 @@ class EncoderDecoder(object):
         # init_context = annotations[0, :, -self.n_hids_src:]
         # modification #1
         # mean pooling
-        init_context = K.sum(annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+        print "--sum--build_trainer"
+        #init_context = K.sum(annotations * src_mask_3d, axis=0) / K.sum(src_mask_3d, axis=0)
+        tmp = sum_op.Sum_op(keepdim=True, dimension=0)(annotations * src_mask_3d)
+        tmp1 = K.squeeze(tmp,0)
+        tmp = sum_op.Sum_op(keepdim=True, dimension=0)(src_mask_3d)
+        tmp2 = K.squeeze(tmp,0)
+        init_context = tmp1 / tmp2
 
         trg_emb = self.table_trg.apply(trg)
         # shift_right assumes a 3D tensor, and time steps is dimension one
@@ -485,10 +517,13 @@ class EncoderDecoder(object):
                                            logisticRegressionLayer=self.logistic_layer,
                                            softmax_output_num_sampled=softmax_output_num_sampled)
         # for reconstruction
-
-        self.L1 = sum([K.sum(K.abs(param)) for param in self.params])
-        self.L2 = sum([K.sum(K.square(param)) for param in self.params])
-
+    
+        #self.L1 = sum([K.sum(K.abs(param)) for param in self.params])
+        #self.L2 = sum([K.sum(K.square(param)) for param in self.params])
+        print "--sum--build_trainerL1L2"
+        self.L1 = sum([sum_op.Sum_op(keepdim=True)(K.abs(param)) for param in self.params])
+        self.L2 = sum([sum_op.Sum_op(keepdim=True)(K.square(param)) for param in self.params])
+        
         params_regular = self.L1 * l1_reg_weight + self.L2 * l2_reg_weight
 
         # train cost
