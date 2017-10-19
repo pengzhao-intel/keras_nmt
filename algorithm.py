@@ -1,12 +1,20 @@
 import keras.backend as K
 from backend import clip_norm
 from itertools import izip
+from mlsl_api import AllReduce, addr
 
-def adadelta(parameters, gradients, rho=0.95, eps=1e-6):
+def adadelta(mlsl_obj, dist, parameters, gradients, rho=0.95, eps=1e-6):
     # create variables to store intermediate updates
+    if mlsl_obj != None:
+        reduce_op=AllReduce(mlsl_obj,dist,1)
+
     shapes = [K.get_variable_shape(p) for p in parameters]
     gradients_sq = [K.zeros(shape) for shape in shapes]
     deltas_sq = [K.zeros(shape) for shape in shapes]
+    
+    if mlsl_obj != None:
+    # collect grad first
+        gradients = [reduce_op(grad) for grad in gradients]    
 
     # calculates the new "average" delta for the next iteration
     gradients_sq_new = [rho * g_sq + (1 - rho) * K.square(g)

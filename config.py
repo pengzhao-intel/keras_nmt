@@ -17,7 +17,8 @@ dict(
     valid_src='./data/valid_src',
     valid_trg='./data/valid_trg',
     valid_out='./data/valid_out',
-
+    l2_reg_weight=0.000001,
+    l1_reg_weight=0.000001,
     sample_freq=400,
     
     replace_unk=False,
@@ -33,4 +34,5 @@ dict(
     val_burn_in=1,
     val_burn_in_fine=150000,
     mkl=True,
+    mkl_multinode=False,
 )
