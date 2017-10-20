@@ -3,6 +3,7 @@ import json
 from keras.backend import _backend
 import numpy
 import theano
+import mlsl
 # Devices, the first one is parameter server, separated by ','
 devices = [device for device in os.getenv('DEVICES', '').split(',') if device]
 # Get keras backend
@@ -99,10 +100,22 @@ def split(data, num_part):
     return parts
 
 def main(configuration, ps_device=None, devices=None):
-
+    mkl_multinode = configuration['mkl_multinode']
+    if mkl_multinode == True:
+        mlsl_obj = mlsl.MLSL()
+        mlsl_obj.init()
+        node_idx = mlsl_obj.get_process_idx()
+        node_num = mlsl_obj.get_process_count()
+        print 'rank ', node_idx
+        print 'nodes ', node_num
+        dist=mlsl_obj.create_distribution(node_num,1)
+    else:
+        mlsl_obj = None
+        dist = None
     prefer_to_model_parallel = configuration['prefer_to_model_parallel']
     l1_reg_weight = configuration['l1_reg_weight']
     l2_reg_weight = configuration['l2_reg_weight']
+    
     #  time_steps*nb_samples
     src = K.placeholder(shape=(None, None), dtype='int32')
     src_mask = K.placeholder(shape=(None, None))
@@ -142,7 +155,7 @@ def main(configuration, ps_device=None, devices=None):
                               ite,
                               l1_reg_weight=l1_reg_weight,
                               l2_reg_weight=l2_reg_weight,
-                              softmax_output_num_sampled=softmax_output_num_sampled)
+                              softmax_output_num_sampled=softmax_output_num_sampled, mlsl_obj=mlsl_obj, dist=dist)
 
     enc_dec.build_sampler()
 
@@ -182,10 +195,20 @@ def main(configuration, ps_device=None, devices=None):
     iters_best = -1
     max_epochs = configuration['finish_after']
     logger.info("epochs %d" %(max_epochs))
+    fn = 'nmt_mkl_log'
+    if mkl_multinode == True:
+        if node_idx == 0:
+            file = open(fn, 'w', 0)
+            last_time = time.time()
+            print('mkl multinode')
+    else:
+        file = open(fn, 'w', 0)
+        last_time = time.time()       
+        print('mkl single node') 
     for epoch in range(max_epochs):
         for x, x_mask, y, y_mask in ds.get_iterator():
             iter_count=0
-            last_time = time.time()
+            #last_time = time.time()
             # for data parallel, we need to split the data into #num devices part
             if devices and not prefer_to_model_parallel:
                 # ignore the case that the number of samples is less than the number of devices
@@ -210,12 +233,12 @@ def main(configuration, ps_device=None, devices=None):
             
             iters += 1
 
-            cur_time = time.time()
-            duration = cur_time - last_time
-            num_of_words = np.prod(x.shape)            
-            words_per_sec = int(num_of_words / duration)
-            logger.info('epoch %d \t updates %d train cost %.4f use time %.4f sec, %d words/sec, data x %s, data y %s'
-                        % (epoch, iters, tc[0], duration, words_per_sec, x.shape, y.shape))
+            #cur_time = time.time()
+            #duration = cur_time - last_time
+            #num_of_words = np.prod(x.shape)            
+            #words_per_sec = int(num_of_words / duration)
+            #logger.info('epoch %d \t updates %d train cost %.4f use time %.4f sec, %d words/sec, data x %s, data y %s'
+            #            % (epoch, iters, tc[0], duration, words_per_sec, x.shape, y.shape))
             '''
             # Commented for fast training
             if iters % configuration['save_freq'] == 0:
@@ -240,7 +263,27 @@ def main(configuration, ps_device=None, devices=None):
                     iters_best = iters
                     enc_dec.save(path=configuration['saveto_best'])
             '''
+            '''
+            if mkl_multinode and node_idx == 0:
+                file.write(str(tc[0])+'\n')
+            else:
+                file.write(str(tc[0])+'\n')
+            '''
             iter_count+=1
+    if mkl_multinode == True:
+        if node_idx == 0:
+            file.close()
+            cur_time = time.time()
+            duration = cur_time - last_time
+            print('time one epoch ', duration)
+    else:
+        file.close()
+        cur_time = time.time()
+        duration = cur_time - last_time
+        print('time one epoch ', duration)
+    if mkl_multinode == True:
+        mlsl_obj.delete_distribution(dist)
+        mlsl_obj.finalize()    
 
 
 if __name__ == '__main__':

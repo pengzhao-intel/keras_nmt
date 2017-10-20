@@ -479,7 +479,7 @@ class EncoderDecoder(object):
     def build_trainer(self, src, src_mask, trg, trg_mask, ite,
                       l1_reg_weight=1e-6,
                       l2_reg_weight=1e-6,
-                      softmax_output_num_sampled=100000):
+                      softmax_output_num_sampled=100000,mlsl_obj=None,dist=None):
 
         src_mask_3d = K.expand_dims(src_mask)
         trg_mask_3d = K.expand_dims(trg_mask)
@@ -536,7 +536,7 @@ class EncoderDecoder(object):
         grads = grad_clip(grads, self.clip_c)
 
         # updates
-        updates = adadelta(self.params, grads)
+        updates = adadelta(mlsl_obj = mlsl_obj, dist = dist, parameters = self.params, gradients = grads)
 
         # train function
         inps = [src, src_mask, trg, trg_mask]
